@@ -413,7 +413,7 @@ AM_TESTS_ENVIRONMENT = \
   GUILE_LOAD_PATH="$(abs_top_srcdir)/modules:$(abs_top_srcdir)/scripts:$$GUILE_LOAD_PATH"; \
   export GUILE_LOAD_PATH;
 
-TESTS = load-module.scm
+TESTS = load-module.scm test-core-ir.scm
 EXTRA_DIST = $(TESTS)
 all: all-am
 
@@ -599,6 +599,13 @@ recheck: all
 load-module.scm.log: load-module.scm
 	@p='load-module.scm'; \
 	b='load-module.scm'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+test-core-ir.scm.log: test-core-ir.scm
+	@p='test-core-ir.scm'; \
+	b='test-core-ir.scm'; \
 	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \

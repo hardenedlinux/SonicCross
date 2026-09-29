@@ -236,7 +236,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 moddir = $(GUILE_SITE)/sonic-cross
-dist_mod_DATA = bootstrap.scm
+dist_mod_DATA = bootstrap.scm core-ir.scm
 all: all-am
 
 .SUFFIXES:
