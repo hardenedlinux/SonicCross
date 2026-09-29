@@ -1,0 +1,1007 @@
+# SonicCross Semantic Specification
+
+**Status: FROZEN**
+
+## 1. Purpose
+
+SonicCross is a pure Guile 3.0 implementation of the semantic transformation performed by the frozen PyTorch torchgen baseline.
+
+Its purpose is to reproduce the relevant torchgen semantic results without depending on Python at runtime.
+
+SonicCross is **not** a new operator model and does not intentionally redesign torchgen semantics.
+
+The implementation goal is:
+
+> Given the same frozen `native_functions.yaml` and `tags.yaml` inputs, SonicCross must produce the same semantic operator universe and generated NativeFunction semantics as the frozen torchgen baseline.
+
+Implementation choices in Scheme may differ from Python torchgen internally. Semantic results must not.
+
+---
+
+## 2. Frozen Upstream Baseline
+
+The reference upstream source is:
+
+* Repository: `pytorch/pytorch`
+* Branch: `release/2.14`
+* Commit: `41ffbc4a994e058af9fe00ed5caba73fc1033359`
+* Version: `2.14.1a0`
+* Release: `v2.14.1-rc1`
+
+This specification freezes the semantic behavior observed from that baseline.
+
+SonicCross implementation agents must **not re-derive semantics from upstream torchgen** unless this specification is explicitly reopened and a new archaeology/audit is requested.
+
+If implementation and this specification appear to conflict:
+
+1. Do not invent semantics.
+2. Do not silently modify the specification.
+3. Stop and report the conflict.
+
+---
+
+# 3. Semantic Pipeline
+
+The semantic pipeline is:
+
+```text
+native_functions.yaml
+        +
+tags.yaml
+        
+        
+     YAML parsing
+        
+        
+   NativeFunction[]
+        
+        
+add_generated_native_functions()
+        
+        
+ derived NativeFunction[]
+        
+        
+      grouping
+        
+         NativeFunctionsGroup
+         NativeFunctionsViewGroup
+        
+        
+     BackendIndex
+        
+        
+ downstream C++ code generation
+```
+
+`add_generated_native_functions()` is part of SonicCross's semantic core.
+
+It is not merely a code-generation convenience.
+
+Generated NativeFunctions are produced by a **single deterministic pass**.
+
+Generated NativeFunctions do **not** re-enter `add_generated_native_functions()`.
+
+There is no fixed-point iteration.
+
+---
+
+# 4. Core Semantic Objects
+
+The semantic core consists of:
+
+```text
+OperatorName
+BaseOperatorName
+SchemaKind
+ViewSchemaKind
+Type
+Argument
+Return
+Arguments
+FunctionSchema
+NativeFunction
+BackendMetadata
+BackendIndex
+NativeFunctionsGroup
+NativeFunctionsViewGroup
+```
+
+Only the minimum data required to express the frozen semantics should be represented.
+
+SonicCross must not mechanically reproduce the Python torchgen class hierarchy.
+
+Derived properties should be computed where they are deterministic rather than redundantly stored.
+
+---
+
+# 5. OperatorName
+
+An operator name consists conceptually of:
+
+```text
+base operator name
++
+optional overload
+```
+
+Examples include:
+
+```text
+add
+add.out
+add.Tensor
+add.Tensor_out
+```
+
+The canonical representation must preserve the distinction between:
+
+* base operator name
+* overload
+
+Operator-name equality must distinguish semantically different overloads.
+
+The representation must also support the semantic properties needed by the frozen specification, including:
+
+* inplace operator detection
+* dunder-method detection
+* functional-overload detection
+
+These properties should be derived when possible rather than duplicated as mutable state.
+
+## 5.1 Inplace
+
+An operator is an inplace operator when its operator name represents the inplace form according to the frozen torchgen naming rules.
+
+The inplace property is semantic and must not be inferred from unrelated schema properties.
+
+## 5.2 Functional overload
+
+The functional-overload property must follow the frozen operator-name semantics.
+
+Do not introduce new normalization rules.
+
+## 5.3 Dunder methods
+
+Dunder-method identification must follow the frozen operator-name representation.
+
+Do not treat arbitrary double-underscore strings as equivalent unless the frozen semantics require it.
+
+---
+
+# 6. BaseOperatorName
+
+`BaseOperatorName` identifies the base operator independently of its overload.
+
+For example:
+
+```text
+add
+add.Tensor
+add.out
+```
+
+share the same base operator name:
+
+```text
+add
+```
+
+Base operator equality is independent of overload equality.
+
+---
+
+# 7. SchemaKind
+
+The supported schema kinds are exactly:
+
+```text
+functional
+inplace
+mutable
+out
+```
+
+These are semantic classifications of a FunctionSchema.
+
+The classification must follow the frozen torchgen rules.
+
+No additional schema kinds may be introduced into the semantic model.
+
+---
+
+# 8. ViewSchemaKind
+
+View schemas have exactly these semantic categories:
+
+```text
+aliasing
+aliasing_inplace
+non_aliasing
+```
+
+`view_copy` is explicitly present in the YAML input.
+
+It is **not generated by `add_generated_native_functions()`**.
+
+`view_copy` has:
+
+```text
+ViewSchemaKind.non_aliasing
+```
+
+View grouping is still based on FunctionSchema signatures.
+
+---
+
+# 9. Type
+
+`Type` must preserve the semantic type information required by FunctionSchema transformations and classification.
+
+The representation must support, at minimum, the distinctions required by:
+
+* Tensor-like types
+* return types
+* mutable / alias annotations
+* list / optional structure where required by schema semantics
+* SymInt detection
+* argument transformations
+
+The implementation must not collapse distinctions that can affect schema equality, signature equality, or generated schemas.
+
+---
+
+# 10. Argument
+
+An Argument consists of the semantic information necessary to represent a schema argument, including:
+
+* name
+* type
+* default value when present
+* annotation / alias information
+* keyword-only status
+* positional status as required by schema syntax
+
+Argument equality must preserve all distinctions relevant to schema semantics.
+
+Default values must not be normalized beyond the frozen semantics.
+
+---
+
+# 11. Return
+
+A Return consists of:
+
+* return type
+* optional return name
+* alias / annotation information
+
+Return names are semantically significant where the frozen transformation explicitly preserves them.
+
+In particular:
+
+```text
+func.signature(keep_return_names=True)
+```
+
+must preserve return names.
+
+---
+
+# 12. FunctionSchema
+
+`FunctionSchema` represents the complete operator schema.
+
+It contains at minimum:
+
+```text
+OperatorName
+Arguments
+Returns
+```
+
+and any additional semantic information necessary to distinguish the frozen schema.
+
+The following properties are semantic:
+
+* operator name
+* overload
+* schema kind
+* arguments
+* returns
+* alias/mutability annotations
+* return names
+* SymInt presence
+* out-variant status
+
+---
+
+# 13. FunctionSchema Classification
+
+A FunctionSchema is classified into one of:
+
+```text
+functional
+inplace
+mutable
+out
+```
+
+according to the frozen schema rules.
+
+Classification must be deterministic.
+
+The implementation must not introduce heuristic classification based on function names alone.
+
+---
+
+# 14. is_out_fn
+
+`is_out_fn` identifies whether a FunctionSchema is an out variant according to the frozen schema semantics.
+
+This is a semantic predicate.
+
+It must not be implemented merely as:
+
+```text
+name contains "out"
+```
+
+unless the actual schema semantics make that equivalent.
+
+---
+
+# 15. FunctionSchema.signature()
+
+`FunctionSchema.signature()` is a fundamental semantic operation.
+
+It is used as the grouping key.
+
+The signature must be:
+
+```text
+deterministic
+canonical
+equality-preserving
+```
+
+The following invariant is mandatory:
+
+> Semantically equivalent schemas must produce equal signatures.
+
+And:
+
+> Semantically different schemas must not accidentally collapse to the same signature.
+
+The signature must contain every schema distinction that affects the frozen grouping semantics.
+
+The implementation must not introduce additional normalization rules merely for convenience.
+
+---
+
+# 16. Signature and Return Names
+
+Return-name preservation is explicitly required.
+
+The semantic equivalent of:
+
+```text
+func.signature(keep_return_names=True)
+```
+
+must preserve return names.
+
+If return names are excluded by another explicitly defined signature operation, that exclusion must be deliberate and follow the frozen semantics.
+
+Do not silently erase return names during canonicalization.
+
+---
+
+# 17. Grouping
+
+Operator grouping is based on:
+
+```text
+FunctionSchema.signature()
+```
+
+It is **not** based merely on:
+
+```text
+BaseOperatorName
+```
+
+Therefore two operators with the same base name may belong to different groups if their signatures differ.
+
+Conversely, variants that have equivalent signatures must be grouped according to the frozen semantics.
+
+---
+
+# 18. Generated NativeFunctions
+
+`add_generated_native_functions()` performs a single semantic transformation over the parsed NativeFunction set.
+
+Generated functions do not recursively trigger generation.
+
+The generated metadata is deterministic.
+
+Generated NativeFunctions have the following fixed metadata:
+
+```text
+structured = false
+structured_delegate = None
+structured_inherits = None
+precomputed = None
+autogen = []
+ufunc_inner_loop = {}
+manual_kernel_registration = false
+manual_cpp_binding = false
+python_module = None
+category_override = None
+device_guard = false
+device_check = NoCheck
+cpp_no_default_args = {}
+has_composite_implicit_autograd_kernel = false
+has_composite_explicit_autograd_kernel = true
+dispatch = CompositeExplicitAutograd
+kernel namespace = at::native
+```
+
+The generated function inherits the operator namespace from the base function.
+
+Generated functions receive:
+
+```text
+generated
+```
+
+as a tag.
+
+Additional inherited tags are selected according to the frozen rules.
+
+These include:
+
+```text
+nondeterministic_seeded
+view_copy
+pt2_compliant_tag
+```
+
+when applicable.
+
+Generated variants also receive the appropriate:
+
+```text
+out
+inplace
+```
+
+tag.
+
+---
+
+# 19. Autogen
+
+The YAML `autogen` field is a string.
+
+Parsing semantics:
+
+```text
+"foo, bar"
+```
+
+becomes:
+
+```text
+["foo", "bar"]
+```
+
+The split delimiter is:
+
+```text
+", "
+```
+
+Absent `autogen` is equivalent to:
+
+```text
+[]
+```
+
+Do not invent additional whitespace normalization.
+
+The `needs_out` predicate is:
+
+```text
+any("out" in str(op_name) for op_name in base_fn.autogen)
+```
+
+This intentionally follows the frozen semantics.
+
+Do not replace it with a more sophisticated name parser.
+
+---
+
+# 20. Generation Conditions
+
+Generation may be skipped according to the frozen conditions.
+
+These include:
+
+* all-manual groups
+* view operators except the `set_` special case
+* CompositeImplicitAutograd groups unless they are core operators
+* only-out groups except the special list
+* problematic inplace schemas
+
+These conditions must remain explicit and deterministic.
+
+---
+
+# 21. Base Function Selection
+
+When deriving variants, the base function priority is:
+
+```text
+mutable
+>
+inplace
+>
+out
+>
+functional
+```
+
+This priority is semantic.
+
+It must not be replaced by lexical ordering or YAML ordering.
+
+---
+
+# 22. Out Generation
+
+An out variant is generated only when:
+
+```text
+not has_out
+AND
+base_fn_valid
+AND
+needs_out
+```
+
+where:
+
+```text
+base_fn_valid =
+    base is inplace
+    OR
+    base has tensor-like return
+```
+
+There is no generic out-generation rule from arbitrary schemas.
+
+---
+
+# 23. Functional Generation
+
+A functional variant is generated when:
+
+```text
+not has_functional
+AND
+(
+    has_out
+    OR
+    gets_out_variant
+)
+```
+
+There is no generic:
+
+```text
+out -> inplace
+```
+
+or:
+
+```text
+functional -> inplace
+```
+
+generation rule.
+
+---
+
+# 24. Functional Schema Derivation
+
+Functional variants derived from inplace or mutable schemas use the semantic equivalent of:
+
+```text
+func.signature(keep_return_names=True)
+```
+
+with the function name changed to the functional form.
+
+When the source is mutable:
+
+```text
+functional_overload = true
+```
+
+is preserved according to the frozen semantics.
+
+---
+
+# 25. Out Schema Derivation
+
+For an inplace source:
+
+```text
+self_to_out_schema()
+```
+
+is used.
+
+The generated out schema:
+
+* removes the self annotation
+* adds the out argument
+* uses overload `out`
+* or `<overload>_out` where required by the frozen naming rule
+
+For a mutable source:
+
+```text
+mutable_to_out_schema()
+```
+
+is used.
+
+Non-aliased tensor-like returns become mutable out arguments.
+
+For a functional source:
+
+```text
+functional_to_out_schema()
+```
+
+is used.
+
+These transformations must preserve the frozen argument, return, alias, and naming semantics.
+
+---
+
+# 26. Generated Kernel Names
+
+Generated out kernels use:
+
+```text
+func.name.unambiguous_name()
+```
+
+Generated functional kernels use:
+
+```text
+cpp.name(func)
+```
+
+and append:
+
+```text
+_symint
+```
+
+when the schema contains SymInt according to the frozen rule.
+
+---
+
+# 27. Namespace Semantics
+
+Operator namespace and kernel namespace are distinct concepts.
+
+For example:
+
+```text
+aten::add
+```
+
+has operator namespace:
+
+```text
+aten
+```
+
+Generated functions inherit the operator namespace of their base function.
+
+The kernel namespace comes from dispatch metadata.
+
+The default native kernel namespace is:
+
+```text
+at::native
+```
+
+Do not conflate these namespaces.
+
+Fragment namespaces:
+
+```text
+quantized
+quantized_decomposed
+```
+
+affect registration-file organization only.
+
+They do not alter the core semantic operator model.
+
+---
+
+# 28. View Groups
+
+A `NativeFunctionsViewGroup` represents the view-related variants:
+
+```text
+view
+inplace_view
+view_copy
+```
+
+when applicable.
+
+The three variants have:
+
+```text
+view
+    -> aliasing
+
+inplace_view
+    -> aliasing_inplace
+
+view_copy
+    -> non_aliasing
+```
+
+`view_copy` is explicit input, not generated by `add_generated_native_functions()`.
+
+Grouping remains based on FunctionSchema signatures.
+
+---
+
+# 29. Composite Kernels
+
+Composite kernel generation is downstream of the semantic IR.
+
+For a generated functional variant, the source variant is selected in this priority:
+
+```text
+non-generated inplace
+>
+non-generated mutable
+>
+error
+```
+
+The generated functional composite kernel:
+
+1. clones mutable/write arguments
+2. calls the mutating kernel
+3. returns non-aliased returns and the required clones
+
+For a generated out variant:
+
+1. calls the functional kernel
+2. applies `resize_out_helper()`
+3. applies `copy_arg()`
+
+The exact C++ body is downstream code generation, not Core IR semantics.
+
+---
+
+# 30. BackendIndex
+
+`BackendIndex.use_out_as_primary` is a BackendIndex property.
+
+It affects registration behavior.
+
+It does **not** determine the body of a composite kernel.
+
+The in-tree frozen baseline has:
+
+```text
+use_out_as_primary = true
+```
+
+---
+
+# 31. Structured Operators
+
+Structured metadata follows these rules:
+
+```text
+structured = true
+```
+
+only for the out variant.
+
+Non-out variants use:
+
+```text
+structured_delegate
+```
+
+to point to the structured out variant.
+
+`precomputed` requires structured metadata.
+
+Structured and structured-delegate variants require:
+
+```text
+device_guard = true
+```
+
+Structured dispatch keys include:
+
+```text
+MPS
+CUDA
+CPU
+XPU
+MTIA
+```
+
+Structured generation emits C++ scaffolding.
+
+Handwritten meta and implementation bodies remain downstream/native code.
+
+---
+
+# 32. Unboxing and Functionalization
+
+Unboxing and functionalization are downstream artifact-generation concerns.
+
+The Core IR must retain the semantic information required by those stages.
+
+`view_copy` remains part of the core operator universe even though its handling is downstream.
+
+---
+
+# 33. Implementation Constraints
+
+SonicCross is implemented in Guile 3.0.
+
+Use idiomatic Guile representations.
+
+Prefer:
+
+* immutable semantic values
+* deterministic records/data structures
+* explicit predicates
+* computed derived properties
+* canonical equality
+
+Do not create an abstraction merely because the Python implementation has one.
+
+Do not mechanically port Python classes.
+
+Do not introduce new semantics.
+
+Do not redesign the operator model.
+
+---
+
+# 34. Testing Strategy
+
+Semantic differential testing is preferred over byte-for-byte generated C++ comparison.
+
+The primary comparison target is the semantic result:
+
+```text
+operator universe
+generated NativeFunction set
+schemas
+tags
+namespace
+structured metadata
+groups
+ViewGroups
+BackendIndex
+needs_out
+signature equivalence classes
+```
+
+The target invariant is:
+
+```text
+SonicCross semantic result
+==
+frozen torchgen semantic result
+```
+
+where equality means semantic equivalence, not implementation-level object identity.
+
+---
+
+# 35. Core IR v0 Scope
+
+The first implementation slice consists only of:
+
+```text
+OperatorName
+BaseOperatorName
+SchemaKind
+ViewSchemaKind
+Argument
+Return
+FunctionSchema
+FunctionSchema.signature()
+```
+
+The first slice must include focused tests for:
+
+* OperatorName representation
+* OperatorName overload handling
+* inplace detection
+* SchemaKind classification
+* ViewSchemaKind
+* FunctionSchema construction
+* kind classification
+* is_out_fn
+* signature equality
+* signature inequality
+* return-name preservation
+* deterministic signature representation
+
+The first slice must **not** implement:
+
+```text
+NativeFunction
+BackendIndex
+NativeFunctionsGroup
+NativeFunctionsViewGroup
+add_generated_native_functions()
+YAML parser
+C++ code generation
+composite code generation
+structured code generation
+registration generation
+unboxing generation
+```
+
+Those are subsequent stages.
+
+---
+
+# 36. Specification Discipline
+
+This document is the semantic contract.
+
+Implementation agents must follow these rules:
+
+1. Do not read or analyze upstream torchgen to rediscover semantics.
+2. Do not modify this specification while implementing code.
+3. Do not invent missing semantics.
+4. Do not replace frozen rules with "cleaner" alternatives.
+5. Do not broaden the implementation scope without instruction.
+6. If a contradiction is found, stop and report it.
+7. Prefer the simplest implementation that exactly expresses the frozen semantics.
+
+The project may later intentionally reopen this specification.
+
+Such a change must be explicit and accompanied by a new semantic audit.
+
+---
+
+# 37. Current Status
+
+```text
+Specification: FROZEN
+Core IR v0:    NEXT
+NativeFunction: PENDING
+Generation:    PENDING
+Grouping:      PENDING
+BackendIndex:  PENDING
+Codegen:       PENDING
+```
+
+The immediate implementation target is Core IR v0 only.
