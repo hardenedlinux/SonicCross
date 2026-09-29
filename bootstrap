@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+autoreconf --verbose --install --force "$@"
