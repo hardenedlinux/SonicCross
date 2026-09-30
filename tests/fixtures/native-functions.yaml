@@ -1,0 +1,7 @@
+- func: add.Tensor(Tensor self, Tensor other) -> Tensor
+  variants: function
+  dispatch:
+    CPU: add_cpu
+    CUDA: add_cuda
+- func: zeros(SymInt[] size, *, ScalarType dtype=None) -> Tensor
+  variants: function

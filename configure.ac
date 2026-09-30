@@ -11,6 +11,7 @@ AC_CONFIG_FILES([
   Makefile
   modules/Makefile
   modules/sonic-cross/Makefile
+  modules/sonic-cross/yaml/Makefile
   scripts/Makefile
   tests/Makefile
   doc/Makefile
