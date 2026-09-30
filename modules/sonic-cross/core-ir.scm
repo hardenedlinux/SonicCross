@@ -62,8 +62,11 @@
    make-dimname-type
    make-const-type
    make-base-type
+   base-type-name
    make-optional-type
    make-list-type
+   list-type-element
+   list-type-size
    tensor-type
    scalar-type
    any-type
@@ -81,6 +84,7 @@
    tensor-like?
    has-symint?
    type-has-symint?
+   type->string
    type-hash
    make-argument
    argument?
@@ -90,12 +94,30 @@
    argument-annotation
    argument-is-write?
    argument-hash
+   argument->string
    make-return
    return?
    return-name
    return-type
    return-annotation
    return-hash
+   return->string
+   make-annotation
+   annotation?
+   annotation-alias-set
+   annotation-is-write?
+   annotation-alias-set-after
+   annotation->string
+   make-self-argument
+   self-argument?
+   self-argument-argument
+   make-tensor-options-arguments
+   tensor-options-arguments?
+   tensor-options-arguments-dtype
+   tensor-options-arguments-layout
+   tensor-options-arguments-device
+   tensor-options-arguments-pin-memory
+   tensor-options-arguments-all
    make-arguments
    arguments?
    arguments-pre-self-positional
@@ -115,6 +137,7 @@
    function-schema-kind
    function-schema-is-out-fn?
    is-out-fn?
+   function-schema->string
    function-schema-signature
    signature
    function-schema-hash))
@@ -268,13 +291,27 @@
 (define (make-memory-format-type) memory-format-type)
 (define (make-dimname-type) dimname-type)
 (define (make-const-type) const-type)
-(define (make-base-type) base-type)
+(define* (make-base-type #:optional (name #f))
+  (if name
+      (make-type 'base-type (list name))
+      base-type))
 
 (define (make-optional-type element-type)
   (make-type 'optional (list element-type)))
 
-(define (make-list-type element-type)
-  (make-type 'list (list element-type)))
+(define* (make-list-type element-type #:optional (size #f))
+  (make-type 'list (list element-type size)))
+
+(define (list-type-element value)
+  (car (type-arguments value)))
+
+(define (list-type-size value)
+  (cadr (type-arguments value)))
+
+(define (base-type-name value)
+  (and (eq? (type-kind value) 'base-type)
+       (pair? (type-arguments value))
+       (car (type-arguments value))))
 
 (define (type-is-tensor-like? value)
   (eq? (type-kind value) 'tensor))
@@ -309,6 +346,54 @@
 (define (return-hash value)
   (hash value 31))
 
+(define-record-type <annotation>
+  (make-annotation alias-set is-write alias-set-after)
+  annotation?
+  (alias-set annotation-alias-set)
+  (is-write annotation-is-write?)
+  (alias-set-after annotation-alias-set-after))
+
+(define (annotation->string value)
+  (let ((before (string-join (annotation-alias-set value) "|"))
+        (after (annotation-alias-set-after value)))
+    (string-append before
+                   (if (annotation-is-write? value) "!" "")
+                   (if after
+                       (string-append " -> "
+                                      (if (eq? after '*)
+                                          "*"
+                                          (string-join after "|")))
+                       ""))))
+
+(define-record-type <self-argument>
+  (make-self-argument argument)
+  self-argument?
+  (argument self-argument-argument))
+
+(define-record-type <tensor-options-arguments>
+  (make-tensor-options-arguments dtype layout device pin-memory)
+  tensor-options-arguments?
+  (dtype tensor-options-arguments-dtype)
+  (layout tensor-options-arguments-layout)
+  (device tensor-options-arguments-device)
+  (pin-memory tensor-options-arguments-pin-memory))
+
+(define (tensor-options-arguments-all value)
+  (list (tensor-options-arguments-dtype value)
+        (tensor-options-arguments-layout value)
+        (tensor-options-arguments-device value)
+        (tensor-options-arguments-pin-memory value)))
+
+(define (self-argument-value value)
+  (if (self-argument? value)
+      (self-argument-argument value)
+      value))
+
+(define (tensor-options-values value)
+  (if (tensor-options-arguments? value)
+      (tensor-options-arguments-all value)
+      (list value)))
+
 (define-record-type <arguments>
   (make-arguments pre-self-positional self-arg post-self-positional
                   pre-tensor-options-kwarg-only tensor-options
@@ -327,12 +412,12 @@
 (define (arguments-all value)
   (append (arguments-pre-self-positional value)
           (if (arguments-self-arg value)
-              (list (arguments-self-arg value))
+              (list (self-argument-value (arguments-self-arg value)))
               '())
           (arguments-post-self-positional value)
           (arguments-pre-tensor-options-kwarg-only value)
           (if (arguments-tensor-options value)
-              (list (arguments-tensor-options value))
+              (tensor-options-values (arguments-tensor-options value))
               '())
           (arguments-post-tensor-options-kwarg-only value)
           (arguments-out value)))
@@ -357,14 +442,16 @@
     (cond
      ((function-schema-is-out-fn? value) schema-kind-out)
      ((and (arguments-self-arg arguments)
-           (argument-is-write? (arguments-self-arg arguments)))
+           (argument-is-write?
+            (self-argument-value (arguments-self-arg arguments))))
       schema-kind-inplace)
      ((any argument-is-write?
            (append (arguments-pre-self-positional arguments)
                    (arguments-post-self-positional arguments)
                    (arguments-pre-tensor-options-kwarg-only arguments)
                    (if (arguments-tensor-options arguments)
-                       (list (arguments-tensor-options arguments))
+                       (tensor-options-values
+                        (arguments-tensor-options arguments))
                        '())
                    (arguments-post-tensor-options-kwarg-only arguments)))
       schema-kind-mutable)
@@ -390,12 +477,12 @@
   (filter argument-is-write?
           (append (arguments-pre-self-positional value)
                   (if (arguments-self-arg value)
-                      (list (arguments-self-arg value))
+                      (list (self-argument-value (arguments-self-arg value)))
                       '())
                   (arguments-post-self-positional value)
                   (arguments-pre-tensor-options-kwarg-only value)
                   (if (arguments-tensor-options value)
-                      (list (arguments-tensor-options value))
+                      (tensor-options-values (arguments-tensor-options value))
                       '()))))
 
 (define (synthetic-returns arguments original-returns keep-name?)
@@ -426,14 +513,16 @@
            (map without-annotation
                 (arguments-pre-self-positional arguments))
            (and (arguments-self-arg arguments)
-                (without-annotation (arguments-self-arg arguments)))
+                (make-self-argument
+                 (without-annotation
+                  (self-argument-value (arguments-self-arg arguments)))))
            (map without-annotation
                 (arguments-post-self-positional arguments))
            (append
             (map without-annotation
                  (arguments-pre-tensor-options-kwarg-only arguments))
-            (map without-annotation
-                 (arguments-post-tensor-options-kwarg-only arguments)))
+           (map without-annotation
+                (arguments-post-tensor-options-kwarg-only arguments)))
            #f
            '()
            '())))
@@ -451,6 +540,84 @@
      normalized-returns)))
 
 (define signature function-schema-signature)
+
+(define (type->string value)
+  (case (type-kind value)
+    ((tensor) "Tensor")
+    ((scalar) "Scalar")
+    ((any) "Any")
+    ((number) "Number")
+    ((int) "int")
+    ((float) "float")
+    ((bool) "bool")
+    ((string) "str")
+    ((sym-int) "SymInt")
+    ((memory-format) "MemoryFormat")
+    ((dimname) "Dimname")
+    ((const) "const")
+    ((base-type) (or (base-type-name value) "BaseType"))
+    ((custom-class)
+     (string-append "__torch__.torch.classes."
+                    (car (type-arguments value))))
+    ((optional)
+     (string-append (type->string (car (type-arguments value))) "?"))
+    ((list)
+     (let ((size (list-type-size value)))
+       (string-append (type->string (list-type-element value))
+                      "[" (if size (number->string size) "") "]")))
+    (else (error 'unknown-type-kind (type-kind value)))))
+
+(define (argument->string value)
+  (string-append
+   (type->string (argument-type value))
+   (if (argument-annotation value)
+       (string-append "(" (annotation->string (argument-annotation value)) ")")
+       "")
+   " " (argument-name value)
+   (if (argument-default value)
+       (string-append "=" (argument-default value))
+       "")))
+
+(define (return->string value)
+  (string-append
+   (type->string (return-type value))
+   (if (return-annotation value)
+       (string-append "(" (annotation->string (return-annotation value)) ")")
+       "")
+   (if (return-name value)
+       (string-append " " (return-name value))
+       "")))
+
+(define (function-schema->string value)
+  (let* ((arguments (function-schema-arguments value))
+         (positional (arguments-pre-self-positional arguments))
+         (self (if (arguments-self-arg arguments)
+                   (list (self-argument-value
+                          (arguments-self-arg arguments)))
+                   '()))
+         (post (arguments-post-self-positional arguments))
+         (kw-before (arguments-pre-tensor-options-kwarg-only arguments))
+         (options (if (arguments-tensor-options arguments)
+                      (tensor-options-values
+                       (arguments-tensor-options arguments))
+                      '()))
+         (kw-after (arguments-post-tensor-options-kwarg-only arguments))
+         (out (arguments-out arguments))
+         (pos (append positional self post))
+         (kw (append kw-before options kw-after))
+         (all (append pos kw out))
+         (argument-texts (append (map argument->string pos)
+                                (if (and (null? kw) (null? out))
+                                    '()
+                                    (cons "*" (map argument->string kw)))
+                                (map argument->string out)))
+         (returns (function-schema-returns value)))
+    (string-append
+     (operator-name->string (function-schema-name value))
+     "(" (string-join argument-texts ", ") ") -> "
+     (cond ((null? returns) "")
+           ((null? (cdr returns)) (return->string (car returns)))
+           (else (string-append "(" (string-join (map return->string returns) ", ") ")"))))))
 
 (define (function-schema-hash value)
   (hash value 31))

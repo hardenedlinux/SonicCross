@@ -295,7 +295,7 @@ top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 SUBDIRS = yaml
 moddir = $(GUILE_SITE)/sonic-cross
-dist_mod_DATA = bootstrap.scm core-ir.scm yaml.scm
+dist_mod_DATA = bootstrap.scm core-ir.scm irregex.scm regex.scm schema-parser.scm yaml.scm
 all: all-recursive
 
 .SUFFIXES:
