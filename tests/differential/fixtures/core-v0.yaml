@@ -1,0 +1,56 @@
+- func: add.Tensor(Tensor self, Tensor other) -> Tensor
+  autogen: add.out
+  dispatch:
+    CPU: add_cpu
+
+- func: add_(Tensor(a!) self, Tensor other) -> Tensor(a!)
+  autogen: add.out
+  dispatch:
+    CPU: add_cpu
+
+- func: add(Tensor self, Tensor(a!) other) -> Tensor
+  autogen: add.out
+  dispatch:
+    CPU: add_cpu
+
+- func: add.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)
+  dispatch:
+    CPU: add_out
+
+- func: split(Tensor self) -> (Tensor values, Tensor indices)
+  autogen: split.out
+  dispatch:
+    CPU: split_cpu
+
+- func: optional(Tensor self) -> Tensor?
+  dispatch:
+    CPU: optional_cpu
+
+- func: sym(SymInt[] size) -> Tensor
+  dispatch:
+    CPU: sym_cpu
+
+- func: view(Tensor self) -> Tensor(a)
+  dispatch:
+    CPU: view_cpu
+
+- func: set_(Tensor(a!) self) -> Tensor(a!)
+  tags: inplace_view
+  dispatch:
+    CPU: set_cpu
+
+- func: view_copy(Tensor self) -> Tensor
+  tags: view_copy
+  dispatch:
+    CPU: view_copy_cpu
+
+- func: composite(Tensor self) -> Tensor
+
+- func: composite_core(Tensor self) -> Tensor
+  tags: core
+  autogen: composite_core.out
+
+- func: polygamma_(Tensor(a!) self) -> Tensor(a!)
+  autogen: polygamma.out
+  dispatch:
+    CPU: polygamma_cpu

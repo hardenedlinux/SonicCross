@@ -413,8 +413,13 @@ AM_TESTS_ENVIRONMENT = \
   GUILE_LOAD_PATH="$(abs_top_srcdir)/modules:$(abs_top_srcdir)/scripts:$$GUILE_LOAD_PATH"; \
   export GUILE_LOAD_PATH;
 
-TESTS = load-module.scm test-core-ir.scm test-irregex.scm test-native-function.scm test-schema-parser.scm test-yaml.scm
-EXTRA_DIST = $(TESTS) fixtures/native-functions.yaml
+TESTS = load-module.scm test-core-ir.scm test-generated-functions.scm test-irregex.scm test-native-function.scm test-schema-parser.scm test-yaml.scm
+EXTRA_DIST = $(TESTS) fixtures/native-functions.yaml \
+  differential/fixtures/core-v0.yaml \
+  differential/python-oracle.py differential/scheme-dump.scm \
+  differential/compare.py \
+  differential/run-differential.sh
+
 all: all-am
 
 .SUFFIXES:
@@ -606,6 +611,13 @@ load-module.scm.log: load-module.scm
 test-core-ir.scm.log: test-core-ir.scm
 	@p='test-core-ir.scm'; \
 	b='test-core-ir.scm'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+test-generated-functions.scm.log: test-generated-functions.scm
+	@p='test-generated-functions.scm'; \
+	b='test-generated-functions.scm'; \
 	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \

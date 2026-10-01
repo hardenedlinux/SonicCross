@@ -84,6 +84,9 @@
    tensor-like?
    has-symint?
    type-has-symint?
+   type-is-symint-like?
+   arguments-flat-non-out
+   function-schema-has-symint?
    type->string
    type-hash
    make-argument
@@ -194,21 +197,38 @@
 (define (make-parsed-base base)
   (let ((dunder (dunder-base base)))
     (if dunder
-        (if (string-prefix? "i" dunder)
-            (if (augmented-assignment-name? (substring dunder 1))
-                (make-base-operator-name
-                 (substring dunder 1) #t #t #f)
-                (error 'invalid-dunder-name base))
-            (make-base-operator-name dunder #f #t #f))
-        (let ((inplace (and (positive? (string-length base))
-                            (char=? (string-ref base
-                                                 (1- (string-length base)))
-                                    #\_))))
+        (begin
+          (when (string-suffix? "_functional" dunder)
+            (error 'invalid-functional-overload base))
+          (if (string-prefix? "i" dunder)
+              (if (augmented-assignment-name? (substring dunder 1))
+                  (make-base-operator-name
+                   (substring dunder 1) #t #t #f)
+                  (error 'invalid-dunder-name base))
+              (make-base-operator-name dunder #f #t #f)))
+        (let* ((functional-suffix "_functional")
+               (functional-overload
+                (and (string-suffix? functional-suffix base)
+                     (> (string-length base)
+                        (string-length functional-suffix))))
+               (without-functional
+                (if functional-overload
+                    (substring base 0
+                               (- (string-length base)
+                                  (string-length functional-suffix)))
+                    base))
+               (inplace (and (positive? (string-length without-functional))
+                             (char=? (string-ref without-functional
+                                                  (1- (string-length without-functional)))
+                                     #\_))))
+          (when (and functional-overload inplace)
+            (error 'invalid-functional-overload base))
           (make-base-operator-name
            (if inplace
-               (substring base 0 (1- (string-length base)))
-               base)
-           inplace #f #f)))))
+               (substring without-functional 0
+                          (1- (string-length without-functional)))
+               without-functional)
+           inplace #f functional-overload)))))
 
 (define (parse-operator-name value)
   (let ((dot (string-index value #\.)))
@@ -229,7 +249,9 @@
                                       "__")
                        (if (base-operator-name-inplace? base)
                            (string-append base-name "_")
-                           base-name)))
+                           (if (base-operator-name-functional-overload? base)
+                               (string-append base-name "_functional")
+                               base-name))))
          (overload (operator-name-overload-name value)))
     (if (string-null? overload)
         spelling
@@ -314,7 +336,11 @@
        (car (type-arguments value))))
 
 (define (type-is-tensor-like? value)
-  (eq? (type-kind value) 'tensor))
+  (or (eq? (type-kind value) 'tensor)
+      (and (pair? (type-arguments value))
+           (or (eq? (type-kind value) 'optional)
+               (eq? (type-kind value) 'list))
+           (type-is-tensor-like? (car (type-arguments value))))))
 
 (define tensor-like? type-is-tensor-like?)
 
@@ -323,6 +349,13 @@
       (any has-symint? (type-arguments value))))
 
 (define type-has-symint? has-symint?)
+
+(define (type-is-symint-like? value)
+  (or (eq? (type-kind value) 'sym-int)
+      (and (pair? (type-arguments value))
+           (or (eq? (type-kind value) 'optional)
+               (eq? (type-kind value) 'list))
+           (type-is-symint-like? (car (type-arguments value))))))
 
 (define-record-type <argument>
   (make-argument name type default annotation is-write)
@@ -422,6 +455,18 @@
           (arguments-post-tensor-options-kwarg-only value)
           (arguments-out value)))
 
+(define (arguments-flat-non-out value)
+  (append (arguments-pre-self-positional value)
+          (if (arguments-self-arg value)
+              (list (self-argument-value (arguments-self-arg value)))
+              '())
+          (arguments-post-self-positional value)
+          (arguments-pre-tensor-options-kwarg-only value)
+          (if (arguments-tensor-options value)
+              (tensor-options-values (arguments-tensor-options value))
+              '())
+          (arguments-post-tensor-options-kwarg-only value)))
+
 (define (arguments-hash value)
   (hash value 31))
 
@@ -436,6 +481,11 @@
   (not (null? (arguments-out (function-schema-arguments value)))))
 
 (define is-out-fn? function-schema-is-out-fn?)
+
+(define (function-schema-has-symint? value)
+  (any (lambda (argument)
+         (type-is-symint-like? (argument-type argument)))
+       (arguments-flat-non-out (function-schema-arguments value))))
 
 (define (function-schema-kind value)
   (let ((arguments (function-schema-arguments value)))
@@ -457,39 +507,37 @@
       schema-kind-mutable)
      (else schema-kind-functional))))
 
-(define (without-annotation argument)
+(define (without-annotation argument strip-default?)
   (make-argument (argument-name argument)
                  (argument-type argument)
-                 (argument-default argument)
+                 (and (not strip-default?) (argument-default argument))
                  #f
-                 (argument-is-write? argument)))
+                 #f))
 
 (define (without-return-annotation return keep-name?)
   (make-return (and keep-name? (return-name return))
                (return-type return)
                #f))
 
-(define (return-represents-argument? return argument)
-  (and (return-name return)
-       (string=? (return-name return) (argument-name argument))))
-
-(define (writable-arguments value)
+(define (signature-mutable-arguments value)
   (filter argument-is-write?
-          (append (arguments-pre-self-positional value)
-                  (if (arguments-self-arg value)
+          (append (if (arguments-self-arg value)
                       (list (self-argument-value (arguments-self-arg value)))
                       '())
                   (arguments-post-self-positional value)
-                  (arguments-pre-tensor-options-kwarg-only value)
-                  (if (arguments-tensor-options value)
-                      (tensor-options-values (arguments-tensor-options value))
-                      '()))))
+                  (arguments-out value))))
+
+(define (same-annotation? left right)
+  (and (annotation? left)
+       (annotation? right)
+       (equal? left right)))
 
 (define (synthetic-returns arguments original-returns keep-name?)
   (filter-map
    (lambda (argument)
      (if (any (lambda (return)
-               (return-represents-argument? return argument))
+               (same-annotation? (argument-annotation argument)
+                                 (return-annotation return)))
              original-returns)
          #f
          (make-return
@@ -497,9 +545,13 @@
                (string-append (argument-name argument) "_out"))
           (argument-type argument)
           #f)))
-   (writable-arguments arguments)))
+   (signature-mutable-arguments arguments)))
 
-(define* (function-schema-signature value #:key (keep-return-names #f))
+(define* (function-schema-signature value
+                                    #:key
+                                    (strip-default #f)
+                                    (strip-view-copy-name #f)
+                                    (keep-return-names #f))
   (let* ((arguments (function-schema-arguments value))
          (original-returns (function-schema-returns value))
          (normalized-returns
@@ -510,19 +562,24 @@
            (synthetic-returns arguments original-returns keep-return-names)))
          (normalized-arguments
           (make-arguments
-           (map without-annotation
+           (map (lambda (argument)
+                  (without-annotation argument strip-default))
                 (arguments-pre-self-positional arguments))
            (and (arguments-self-arg arguments)
                 (make-self-argument
                  (without-annotation
-                  (self-argument-value (arguments-self-arg arguments)))))
-           (map without-annotation
+                  (self-argument-value (arguments-self-arg arguments))
+                  strip-default)))
+           (map (lambda (argument)
+                  (without-annotation argument strip-default))
                 (arguments-post-self-positional arguments))
            (append
-            (map without-annotation
+            (map (lambda (argument)
+                   (without-annotation argument strip-default))
                  (arguments-pre-tensor-options-kwarg-only arguments))
-           (map without-annotation
-                (arguments-post-tensor-options-kwarg-only arguments)))
+            (map (lambda (argument)
+                   (without-annotation argument strip-default))
+                 (arguments-post-tensor-options-kwarg-only arguments)))
            #f
            '()
            '())))

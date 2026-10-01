@@ -68,6 +68,7 @@
             native-function-has-composite-explicit-autograd-kernel?
             native-function-has-composite-explicit-autograd-non-functional-kernel?
             native-function-tags
+            native-function-is-view-op?
             native-function-from-yaml
             make-native-functions-group
             native-functions-group?
@@ -339,13 +340,46 @@
               (yaml-mapping-entries raw)))))
 
 (define valid-tags
-  '("pt2_compliant_tag" "out" "inplace" "nondeterministic_seeded"))
+  '("pt2_compliant_tag" "out" "inplace" "nondeterministic_seeded"
+    "core" "inplace_view" "view_copy" "generated"))
 
 (define (tag-set tags)
   (let ((result (delete-duplicates tags string=?)))
     (unless (every (lambda (tag) (member tag valid-tags)) result)
       (error 'invalid-native-function-tag result))
     result))
+
+(define (annotation-write? annotation)
+  (and (annotation? annotation)
+       (annotation-is-write? annotation)))
+
+(define (annotation-wildcard-after? annotation)
+  (and (annotation? annotation)
+       (let ((after (annotation-alias-set-after annotation)))
+         (or (eq? after '*)
+             (and (pair? after) (member "*" after))))))
+
+(define (native-function-is-view-op? value)
+  (let* ((func (native-function-func value))
+         (returns (function-schema-returns func))
+         (non-mutating-view?
+          (and (pair? returns)
+               (any (lambda (return)
+                     (let ((annotation (return-annotation return)))
+                       (and (annotation? annotation)
+                            (not (annotation-is-write? annotation)))))
+                   returns)))
+         (operator (operator-name->string (function-schema-name func)))
+         (inplace-view?
+          (and (member "inplace_view" (native-function-tags value))
+               (not (string=? operator "resize_"))
+               (not (string=? operator "resize_as_"))))
+         (wildcard-view?
+          (any (lambda (argument)
+                (annotation-wildcard-after?
+                 (argument-annotation argument)))
+              (arguments-all (function-schema-arguments func)))))
+    (or non-mutating-view? inplace-view? wildcard-view?)))
 
 (define (native-function-from-yaml mapping)
   (unless (yaml-mapping? mapping) (error 'expected-native-function-mapping mapping))

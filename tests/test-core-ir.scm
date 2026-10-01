@@ -71,6 +71,27 @@
   (test-assert (operator-name-functional-overload? name))
   (test-assert (not (operator-name-inplace? name))))
 
+(for-each
+ (lambda (text)
+   (let ((name (parse-operator-name text)))
+     (test-equal text (operator-name->string name))))
+ '("foo" "foo_" "foo_functional" "foo.bar"
+   "foo.bar_functional" "foo_functional.bar"))
+(let* ((functional (parse-operator-name "foo_functional"))
+       (qualified (parse-operator-name "foo_functional.bar")))
+  (test-equal "foo" (base-operator-name-base
+                      (operator-name-base functional)))
+  (test-assert (base-operator-name-functional-overload?
+                (operator-name-base functional)))
+  (test-equal "bar" (operator-name-overload-name qualified))
+  (test-assert (base-operator-name-functional-overload?
+                (operator-name-base qualified))))
+(test-assert (not (base-operator-name-functional-overload?
+                   (operator-name-base (parse-operator-name "foo_")))))
+(let ((dunder (parse-operator-name "__add__")))
+  (test-assert (operator-name-dunder-method? dunder))
+  (test-assert (not (operator-name-functional-overload? dunder))))
+
 ;; Type structure and predicates.
 (test-assert (type-is-tensor-like? tensor))
 (test-assert (not (type-is-tensor-like? integer)))
@@ -174,11 +195,13 @@
 (test-equal "second" (return-name (cadr (function-schema-returns named-normalized))))
 (test-equal tensor (return-type (car (function-schema-returns named-normalized))))
 
+(define family-alias-write (make-annotation '("a") #t #f))
+
 ;; Mutable inputs become synthetic returns unless already represented.
 (define mutable-inputs
-  (make-arguments '() #f '()
-                  (list (arg "buffer" tensor #f 'write #t))
-                  #f '() '()))
+  (make-arguments '() #f
+                  (list (arg "buffer" tensor #f family-alias-write #t))
+                  '() #f '() '()))
 (define mutable-schema
   (make-function-schema (parse-operator-name "mutate.Tensor")
                         mutable-inputs
@@ -193,8 +216,8 @@
    (cadr (function-schema-returns
           (function-schema-signature mutable-schema)))))
 
-;; Out normalization drops the explicit out argument. Mutable arguments retain
-;; is_write in the signature and therefore do not collapse accidentally.
+;; Out normalization drops the explicit out argument. Mutable annotations are
+;; used only for signature matching and are removed from normalized arguments.
 (define family-returns (list (make-return "self" tensor #f)))
 (define family-functional
   (make-function-schema
@@ -205,22 +228,23 @@
 (define family-inplace
   (make-function-schema
    (parse-operator-name "family_.Tensor")
-   (make-arguments '() (arg "self" tensor #f 'write #t) '()
+   (make-arguments '() (arg "self" tensor #f family-alias-write #t) '()
                    (list (arg "other" tensor #f #f #f)) #f '() '())
-   family-returns))
+   (list (make-return "self" tensor family-alias-write))))
 (define family-mutable
   (make-function-schema
    (parse-operator-name "family.mutable")
-   (make-arguments '() (arg "self" tensor #f #f #f) '()
-                   (list (arg "other" tensor #f 'write #t)) #f '() '())
+   (make-arguments '() (arg "self" tensor #f #f #f)
+                   (list (arg "other" tensor #f family-alias-write #t))
+                   '() #f '() '())
    family-returns))
 (define family-out
   (make-function-schema
    (parse-operator-name "family.out")
    (make-arguments '() (arg "self" tensor #f #f #f) '()
                    (list (arg "other" tensor #f #f #f)) #f '()
-                   (list (arg "out" tensor #f 'write #t)))
-   family-returns))
+                   (list (arg "out" tensor #f family-alias-write #t)))
+   (list (make-return "self" tensor family-alias-write))))
 (define family-signature (function-schema-signature family-functional
                                                     #:keep-return-names #t))
 (test-assert (equal? family-signature
@@ -235,10 +259,10 @@
   (return-type (cadr (function-schema-returns family-mutable-signature))))
 (test-equal #f
   (return-annotation (cadr (function-schema-returns family-mutable-signature))))
-(test-assert (argument-is-write?
-              (car (arguments-pre-tensor-options-kwarg-only
-                    (function-schema-arguments
-                     (function-schema-signature family-mutable))))))
+(test-assert (not (argument-is-write?
+                   (car (arguments-post-self-positional
+                         (function-schema-arguments
+                          (function-schema-signature family-mutable)))))))
 (test-equal #f
   (return-name
    (cadr (function-schema-returns
