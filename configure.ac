@@ -1,4 +1,4 @@
-AC_INIT([SonicCross], [0.1.0], [nobody@example.invalid])
+AC_INIT([SonicCross], [0.0.1], [nobody@example.invalid])
 AC_CONFIG_SRCDIR([modules/sonic-cross/bootstrap.scm])
 AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([foreign])

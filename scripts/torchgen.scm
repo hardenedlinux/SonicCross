@@ -158,11 +158,21 @@ Generate the ATen C++ source/header artifacts from native_functions.yaml.
                         (if g
                             (parse-subsets g)
                             '(headers sources declarations_yaml)))))
-        (let ((written (generate-all source-path install-dir
-                                     #:aoti-install-dir aoti-dir
-                                     #:headeronly-install-dir headeronly-dir
-                                     #:dry-run? dry-run?
-                                     #:generate subsets)))
-          (when output-deps
-            (write-output-dependencies output-deps written))
-          0))))))
+        (let ((yaml-path (string-append source-path "/native/native_functions.yaml")))
+          (if (not (file-exists? yaml-path))
+              (begin
+                (format (current-error-port)
+                        "torchgen: ~a: no such file~%" yaml-path)
+                (format (current-error-port)
+                        "  (point -s/--source-path at an ATen source tree)~%")
+                (newline (current-error-port))
+                (usage)
+                1)
+              (let ((written (generate-all source-path install-dir
+                                           #:aoti-install-dir aoti-dir
+                                           #:headeronly-install-dir headeronly-dir
+                                           #:dry-run? dry-run?
+                                           #:generate subsets)))
+                (when output-deps
+                  (write-output-dependencies output-deps written))
+                0))))))))

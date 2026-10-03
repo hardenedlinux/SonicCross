@@ -142,8 +142,8 @@ am__uninstall_files_from_dir = { \
     || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
-am__installdirs = "$(DESTDIR)$(moddir)"
-DATA = $(dist_mod_DATA)
+am__installdirs = "$(DESTDIR)$(moddir)" "$(DESTDIR)$(godir)"
+DATA = $(dist_mod_DATA) $(nodist_go_DATA)
 am__tagged_files = $(HEADERS) $(SOURCES) $(TAGS_FILES) $(LISP)
 am__DIST_COMMON = $(srcdir)/Makefile.in
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -236,7 +236,11 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 moddir = $(GUILE_SITE)/sonic-cross/yaml
+godir = $(GUILE_SITE_CCACHE)/sonic-cross/yaml
 dist_mod_DATA = ffi.scm
+GOBJECTS = $(dist_mod_DATA:.scm=.go)
+nodist_go_DATA = $(GOBJECTS)
+CLEANFILES = $(GOBJECTS)
 all: all-am
 
 .SUFFIXES:
@@ -290,6 +294,27 @@ uninstall-dist_modDATA:
 	@list='$(dist_mod_DATA)'; test -n "$(moddir)" || list=; \
 	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
 	dir='$(DESTDIR)$(moddir)'; $(am__uninstall_files_from_dir)
+install-nodist_goDATA: $(nodist_go_DATA)
+	@$(NORMAL_INSTALL)
+	@list='$(nodist_go_DATA)'; test -n "$(godir)" || list=; \
+	if test -n "$$list"; then \
+	  echo " $(MKDIR_P) '$(DESTDIR)$(godir)'"; \
+	  $(MKDIR_P) "$(DESTDIR)$(godir)" || exit 1; \
+	fi; \
+	for p in $$list; do \
+	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
+	  echo "$$d$$p"; \
+	done | $(am__base_list) | \
+	while read files; do \
+	  echo " $(INSTALL_DATA) $$files '$(DESTDIR)$(godir)'"; \
+	  $(INSTALL_DATA) $$files "$(DESTDIR)$(godir)" || exit $$?; \
+	done
+
+uninstall-nodist_goDATA:
+	@$(NORMAL_UNINSTALL)
+	@list='$(nodist_go_DATA)'; test -n "$(godir)" || list=; \
+	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
+	dir='$(DESTDIR)$(godir)'; $(am__uninstall_files_from_dir)
 tags TAGS:
 
 ctags CTAGS:
@@ -333,7 +358,7 @@ check-am: all-am
 check: check-am
 all-am: Makefile $(DATA)
 installdirs:
-	for dir in "$(DESTDIR)$(moddir)"; do \
+	for dir in "$(DESTDIR)$(moddir)" "$(DESTDIR)$(godir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-am
@@ -358,6 +383,7 @@ install-strip:
 mostlyclean-generic:
 
 clean-generic:
+	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
@@ -386,7 +412,7 @@ info: info-am
 
 info-am:
 
-install-data-am: install-dist_modDATA
+install-data-am: install-dist_modDATA install-nodist_goDATA
 
 install-dvi: install-dvi-am
 
@@ -430,7 +456,7 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am: uninstall-dist_modDATA
+uninstall-am: uninstall-dist_modDATA uninstall-nodist_goDATA
 
 .MAKE: install-am install-strip
 
@@ -440,14 +466,25 @@ uninstall-am: uninstall-dist_modDATA
 	install-data-am install-dist_modDATA install-dvi \
 	install-dvi-am install-exec install-exec-am install-html \
 	install-html-am install-info install-info-am install-man \
-	install-pdf install-pdf-am install-ps install-ps-am \
-	install-strip installcheck installcheck-am installdirs \
-	maintainer-clean maintainer-clean-generic mostlyclean \
-	mostlyclean-generic pdf pdf-am ps ps-am tags-am uninstall \
-	uninstall-am uninstall-dist_modDATA
+	install-nodist_goDATA install-pdf install-pdf-am install-ps \
+	install-ps-am install-strip installcheck installcheck-am \
+	installdirs maintainer-clean maintainer-clean-generic \
+	mostlyclean mostlyclean-generic pdf pdf-am ps ps-am tags-am \
+	uninstall uninstall-am uninstall-dist_modDATA \
+	uninstall-nodist_goDATA
 
 .PRECIOUS: Makefile
 
+
+# ffi.scm imports only Guile core modules, so it has no SonicCross dependency
+# lines (see modules/sonic-cross/Makefile.am for the dependency-tracking rule).
+%.go: %.scm
+	@echo "  GUILEC   $@"
+	@GUILE_AUTO_COMPILE=0 \
+	  GUILE_LOAD_COMPILED_PATH="$(abs_top_builddir)/modules" \
+	  $(GUILD) compile \
+	    -L "$(abs_top_srcdir)" -L "$(abs_top_srcdir)/modules" \
+	    -o "$@" "$(patsubst %.go,%.scm,$@)"
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

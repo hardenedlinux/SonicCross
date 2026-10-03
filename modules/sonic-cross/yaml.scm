@@ -155,8 +155,17 @@
     (lambda ()
       (call-with-input-file filename yaml-load-port))
     (lambda (key . args)
-      (if (eq? key 'yaml-error)
-          (apply error key args)
-          (error 'yaml-error
-                 (format #f "unable to load YAML file ~a: ~a"
-                         filename key))))))
+      (cond
+       ((eq? key 'yaml-error)
+        (apply error key args))
+       ;; system-error args are (who format-string format-args errno); the
+       ;; first format-arg is the OS message ("No such file or directory"),
+       ;; which is what we want instead of the bare key "system-error".
+       ((eq? key 'system-error)
+        (error 'yaml-error
+               (format #f "unable to load YAML file ~a: ~a"
+                       filename (car (caddr args)))))
+       (else
+        (error 'yaml-error
+               (format #f "unable to load YAML file ~a: ~a"
+                       filename key)))))))
