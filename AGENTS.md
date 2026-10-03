@@ -2,6 +2,10 @@
 
 These instructions apply to work in this repository.
 
+**Status: SonicCross v0 is frozen** (commit `8c6838b`). The generation closure
+(manifest + G1–G20) is complete and byte-identical against frozen torchgen; no
+new features are planned. The next phase is the SonicBoom runtime architecture.
+
 ## Before editing
 
 1. Read the relevant frozen semantic document and current implementation.
@@ -50,12 +54,15 @@ SONICCROSS_PYTORCH_ROOT=/path/to/pytorch \
 If the checkout is missing or has another revision, report the blocker. Do
 not fall back to another revision and do not fabricate expected output.
 
-## Out of scope unless explicitly requested
+## Out of scope (v0 frozen)
 
-- new torchgen archaeology;
-- Core IR redesign;
-- BackendIndex behavior;
-- NativeFunctionsViewGroup;
-- dispatcher or registration;
-- autograd or functionalization codegen;
-- unboxing or C++ code generation.
+SonicCross v0 is frozen. Do not add features. Still out of scope:
+
+- new torchgen archaeology beyond the frozen `41ffbc4a…` baseline;
+- Core IR / Schema Parser / NativeFunction / generation-API redesign;
+- BackendIndex semantics and NativeFunctionsViewGroup (never needed — the
+  closure uses the nop selector);
+- G21 `Declarations.yaml` (YAML serialization);
+- AOTI C shim, `VmapGeneratedPlumbing.h`, per-operator headers;
+- Python bindings, ExecuTorch / lazy / selective build / static dispatch;
+- runtime dispatcher, boxing/unboxing, and C++ runtime codegen (SonicBoom).

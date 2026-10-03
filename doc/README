@@ -1,1 +1,13 @@
-SonicCross documentation will be added after the project infrastructure is stable.
+# SonicCross documentation
+
+This directory is the documentation index. The authoritative documents live in
+`design/`:
+
+- [`SONICCROSS-SPEC.md`](../design/SONICCROSS-SPEC.md) — the frozen SonicCross semantic specification.
+- [`SonicCross_Core_IR_v0_Frozen_Semantics.md`](../design/SonicCross_Core_IR_v0_Frozen_Semantics.md) — frozen Core IR (Semantic IR) record model and semantics.
+- [`SonicCross_Core_IR_v0_Signature_Recovery.md`](../design/SonicCross_Core_IR_v0_Signature_Recovery.md) — how torchgen signature forms are recovered into the IR.
+- [`SonicCross_Generation_Configuration_v0.md`](../design/SonicCross_Generation_Configuration_v0.md) — the default generation scope (dispatch keys, sharding, file managers) and the G1–G21 group map.
+- [`SonicCross_Semantic_Differential_Test_v0.md`](../design/SonicCross_Semantic_Differential_Test_v0.md) — the differential test strategy.
+
+Build, test, and differential-validation instructions are in the top-level
+[`README.md`](../README.md).
