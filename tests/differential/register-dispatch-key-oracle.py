@@ -69,10 +69,7 @@ class RecordingFileManager(_OriginalFileManager):
             content = self.substitute_with_template(
                 template_fn=template_fn, env_callable=env_callable
             )
-            stem = file.stem
-            if stem.endswith("Everything"):
-                stem = stem[: -len("Everything")]
-            out_path = Path(out_dir) / (stem + ".cpp")
+            out_path = Path(out_dir) / file.name
             out_path.write_text(content, encoding="utf-8")
 
 

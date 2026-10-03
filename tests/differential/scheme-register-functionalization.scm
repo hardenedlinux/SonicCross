@@ -40,9 +40,7 @@
   (list key (or (assoc-ref indices key) '()) #f))
 
 (define (filename-for-suffix suffix)
-  (if (string=? suffix "Everything")
-      "RegisterFunctionalization.cpp"
-      (string-append "RegisterFunctionalization" suffix ".cpp")))
+  (string-append "RegisterFunctionalization" suffix ".cpp"))
 
 (unless (= (length (command-line)) 3)
   (error "usage: scheme-register-functionalization.scm NATIVE_FUNCTIONS_YAML OUTDIR"))

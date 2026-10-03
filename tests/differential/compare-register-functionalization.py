@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 FILES = [
-    "RegisterFunctionalization.cpp",
+    "RegisterFunctionalizationEverything.cpp",
     "RegisterFunctionalization_0.cpp",
     "RegisterFunctionalization_1.cpp",
     "RegisterFunctionalization_2.cpp",

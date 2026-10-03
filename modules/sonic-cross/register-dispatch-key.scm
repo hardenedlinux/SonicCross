@@ -1124,9 +1124,7 @@
                                                           num-shards)))
         (map (lambda (entry)
                (let ((suffix (car entry)) (content (cdr entry)))
-                 (cons (string-append "Register" key
-                                      (if (string=? suffix "Everything") "" suffix)
-                                      ".cpp")
+                 (cons (string-append "Register" key suffix ".cpp")
                        content)))
              shards)))
     (filtered-dispatch-keys))
