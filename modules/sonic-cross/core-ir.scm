@@ -40,6 +40,7 @@
    schema-kind-inplace
    schema-kind-mutable
    schema-kind-out
+   schema-kind-scratch
    schema-kind?
    view-schema-kind-aliasing
    view-schema-kind-aliasing-inplace
@@ -261,10 +262,11 @@
 (define schema-kind-inplace 'inplace)
 (define schema-kind-mutable 'mutable)
 (define schema-kind-out 'out)
+(define schema-kind-scratch 'scratch)
 
 (define (schema-kind? value)
   (memq value (list schema-kind-functional schema-kind-inplace
-                    schema-kind-mutable schema-kind-out)))
+                    schema-kind-mutable schema-kind-out schema-kind-scratch)))
 
 (define view-schema-kind-aliasing 'aliasing)
 (define view-schema-kind-aliasing-inplace 'aliasing_inplace)
@@ -488,23 +490,28 @@
        (arguments-flat-non-out (function-schema-arguments value))))
 
 (define (function-schema-kind value)
-  (let ((arguments (function-schema-arguments value)))
+  ;; Mirrors torchgen FunctionSchema.kind():
+  ;;   - inplace is derived from the operator name (trailing `_`), not from
+  ;;     the `self` annotation;
+  ;;   - mutable only inspects post-self-positional arguments;
+  ;;   - precedence is inplace > scratch > out > mutable > functional.
+  (let* ((arguments (function-schema-arguments value))
+         (out (arguments-out arguments))
+         (is-out (not (null? out)))
+         (is-scratch (any (lambda (argument)
+                            (string-prefix? "_scratch_" (argument-name argument)))
+                          out))
+         (is-inplace (operator-name-inplace? (function-schema-name value)))
+         (is-mutable (any argument-is-write?
+                          (arguments-post-self-positional arguments))))
     (cond
-     ((function-schema-is-out-fn? value) schema-kind-out)
-     ((and (arguments-self-arg arguments)
-           (argument-is-write?
-            (self-argument-value (arguments-self-arg arguments))))
-      schema-kind-inplace)
-     ((any argument-is-write?
-           (append (arguments-pre-self-positional arguments)
-                   (arguments-post-self-positional arguments)
-                   (arguments-pre-tensor-options-kwarg-only arguments)
-                   (if (arguments-tensor-options arguments)
-                       (tensor-options-values
-                        (arguments-tensor-options arguments))
-                       '())
-                   (arguments-post-tensor-options-kwarg-only arguments)))
-      schema-kind-mutable)
+     ((and is-out is-inplace) (error 'out-and-inplace value))
+     (is-inplace schema-kind-inplace)
+     (is-scratch
+      (unless is-out (error 'scratch-not-out value))
+      schema-kind-scratch)
+     (is-out schema-kind-out)
+     (is-mutable schema-kind-mutable)
      (else schema-kind-functional))))
 
 (define (without-annotation argument strip-default?)
@@ -520,12 +527,17 @@
                #f))
 
 (define (signature-mutable-arguments value)
+  ;; Mirrors torchgen FunctionSchema.signature() returns_from_mutable_inputs:
+  ;; the write-annotated arguments are ordered self -> out -> post_self_positional.
+  ;; Order matters: an inplace op whose `self` aliases a list and whose
+  ;; post-self-positional arg is also written must produce the same synthetic
+  ;; return order as its generated out= variant (self annotation moved to `out`).
   (filter argument-is-write?
           (append (if (arguments-self-arg value)
                       (list (self-argument-value (arguments-self-arg value)))
                       '())
-                  (arguments-post-self-positional value)
-                  (arguments-out value))))
+                  (arguments-out value)
+                  (arguments-post-self-positional value))))
 
 (define (same-annotation? left right)
   (and (annotation? left)
@@ -547,6 +559,26 @@
           #f)))
    (signature-mutable-arguments arguments)))
 
+(define (string-replace-all s target replacement)
+  (let ((index (string-contains s target)))
+    (if index
+        (string-append (substring s 0 index)
+                       replacement
+                       (string-replace-all
+                        (substring s (+ index (string-length target)))
+                        target replacement))
+        s)))
+
+;; Mirrors torchgen FunctionSchema.signature(strip_view_copy_name=True):
+;; a trailing "_copy" is stripped, and a trailing "_scatter" is rewritten
+;; to its "_inverse" counterpart (see get_view_copy_name in model.py).
+(define (strip-view-copy-suffix name)
+  (cond
+   ((string-suffix? "_copy" name) (string-replace-all name "_copy" ""))
+   ((string-suffix? "_scatter" name)
+    (string-replace-all name "scatter" "inverse"))
+   (else name)))
+
 (define* (function-schema-signature value
                                     #:key
                                     (strip-default #f)
@@ -554,6 +586,16 @@
                                     (keep-return-names #f))
   (let* ((arguments (function-schema-arguments value))
          (original-returns (function-schema-returns value))
+         (name (function-schema-name value))
+         (name-base (operator-name-base name))
+         (raw-base-name (base-operator-name-base name-base))
+         (base-name (if strip-view-copy-name
+                        (strip-view-copy-suffix raw-base-name)
+                        raw-base-name))
+         ;; Note [bernoulli.p schema]: torchgen FunctionSchema.signature()
+         ;; rewrites `bernoulli.p`'s `float p` (no default) to `float p=0.5`,
+         ;; so it groups with `bernoulli_.float` / `bernoulli.float_out`.
+         (bernoulli-p? (string=? (operator-name->string name) "bernoulli.p"))
          (normalized-returns
           (append
            (map (lambda (return)
@@ -571,7 +613,14 @@
                   (self-argument-value (arguments-self-arg arguments))
                   strip-default)))
            (map (lambda (argument)
-                  (without-annotation argument strip-default))
+                  (let ((argument (without-annotation argument strip-default)))
+                    (if (and bernoulli-p?
+                             (string=? (argument-name argument) "p"))
+                        (make-argument (argument-name argument)
+                                       (argument-type argument)
+                                       "0.5"
+                                       #f #f)
+                        argument)))
                 (arguments-post-self-positional arguments))
            (append
             (map (lambda (argument)
@@ -586,11 +635,9 @@
     (make-function-schema
      (make-operator-name
       (make-base-operator-name
-       (base-operator-name-base (operator-name-base
-                                 (function-schema-name value)))
+       base-name
        #f
-       (base-operator-name-dunder-method?
-        (operator-name-base (function-schema-name value)))
+       (base-operator-name-dunder-method? name-base)
        #f)
       "")
      normalized-arguments
@@ -624,26 +671,38 @@
                       "[" (if size (number->string size) "") "]")))
     (else (error 'unknown-type-kind (type-kind value)))))
 
+(define (annotated-type->string type-string annotation)
+  ;; torchgen Argument.__str__/Return.__str__: the alias annotation binds to
+  ;; Tensor, not the optional/list wrapper, so replace the leading "Tensor"
+  ;; with "Tensor(annotation)".  Valid only for the three annotated forms.
+  (unless (member type-string '("Tensor" "Tensor?" "Tensor[]"))
+    (error 'annotation-on-non-tensor-type type-string))
+  (string-append "Tensor(" annotation ")" (substring type-string 6)))
+
 (define (argument->string value)
-  (string-append
-   (type->string (argument-type value))
-   (if (argument-annotation value)
-       (string-append "(" (annotation->string (argument-annotation value)) ")")
-       "")
-   " " (argument-name value)
-   (if (argument-default value)
-       (string-append "=" (argument-default value))
-       "")))
+  (let* ((type-string (type->string (argument-type value)))
+         (annotation (argument-annotation value))
+         (type-text (if annotation
+                        (annotated-type->string
+                         type-string (annotation->string annotation))
+                        type-string)))
+    (string-append type-text
+                   " " (argument-name value)
+                   (if (argument-default value)
+                       (string-append "=" (argument-default value))
+                       ""))))
 
 (define (return->string value)
-  (string-append
-   (type->string (return-type value))
-   (if (return-annotation value)
-       (string-append "(" (annotation->string (return-annotation value)) ")")
-       "")
-   (if (return-name value)
-       (string-append " " (return-name value))
-       "")))
+  (let* ((type-string (type->string (return-type value)))
+         (annotation (return-annotation value))
+         (type-text (if annotation
+                        (annotated-type->string
+                         type-string (annotation->string annotation))
+                        type-string)))
+    (string-append type-text
+                   (if (return-name value)
+                       (string-append " " (return-name value))
+                       ""))))
 
 (define (function-schema->string value)
   (let* ((arguments (function-schema-arguments value))
@@ -672,7 +731,7 @@
     (string-append
      (operator-name->string (function-schema-name value))
      "(" (string-join argument-texts ", ") ") -> "
-     (cond ((null? returns) "")
+     (cond ((null? returns) "()")
            ((null? (cdr returns)) (return->string (car returns)))
            (else (string-append "(" (string-join (map return->string returns) ", ") ")"))))))
 

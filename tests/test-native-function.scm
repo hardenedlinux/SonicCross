@@ -116,7 +116,10 @@
 (let ((function (nf "func: add_(Tensor(a!) self) -> Tensor(a!)\ndispatch:\n  CPU: add_\n")))
   (test-assert (member "inplace" (native-function-tags function))))
 (let ((function (nf "func: rand(Tensor self) -> Tensor\ndispatch:\n  CPU: rand_cpu\n")))
-  (test-assert (member "nondeterministic_seeded" (native-function-tags function))))
+  ;; torchgen does not auto-apply nondeterministic_seeded; the tag must be
+  ;; spelled out in the yaml (the "rand"-based heuristic was removed).
+  (test-assert (not (member "nondeterministic_seeded"
+                            (native-function-tags function)))))
 (test-error (nf "func: add.Tensor(Tensor self) -> Tensor\ntags: unknown\ndispatch:\n  CPU: add_cpu\n"))
 
 (test-error (nf "func: add.out(Tensor self, *, Tensor(a!) out) -> Tensor(a!)\nvariants: method\ndispatch:\n  CPU: add_out\n"))
@@ -147,6 +150,73 @@
    (list (cons "functional" (nf basic-yaml))
          (cons "inplace" (nf "func: add_(Tensor(a!) self, Tensor other) -> Tensor(a!)\ndispatch:\n  CPU: add_cpu\n")))))
 (test-error (native-functions-group-from-dict '()))
+
+;; ---- NativeFunctionsViewGroup semantics ----
+
+;; 1. No view operators => no view groups.
+(test-equal '()
+  (native-functions-view-groups
+   (list (nf "func: add.Tensor(Tensor self) -> Tensor\ndispatch:\n  CPU: add_cpu\n"))))
+
+;; 2. One aliasing view paired with its view_copy => exactly one group.
+(let* ((view (nf "func: view(Tensor self) -> Tensor(a)\ndispatch:\n  CPU: view_cpu\n"))
+       (copy (nf "func: view_copy(Tensor self) -> Tensor\ntags: view_copy\ndispatch:\n  CPU: view_copy_cpu\n"))
+       (groups (native-functions-view-groups (list view copy))))
+  (test-equal 1 (length groups))
+  (let ((group (car groups)))
+    (test-assert (native-functions-view-group? group))
+    (test-equal view (native-functions-view-group-view group))
+    (test-equal copy (native-functions-view-group-view-copy group))
+    (test-equal #f (native-functions-view-group-view-inplace group))
+    (test-equal "view" (native-functions-view-group-root-name group))
+    (test-equal #f (native-functions-view-group-composite? group))
+    (test-equal (list view copy) (native-functions-view-group-functions group))
+    (test-assert (native-function-gets-generated-view-copy? view))
+    (test-equal "view_copy"
+      (operator-name->string (native-function-view-copy-name view)))))
+
+;; 3. aliasing classification.
+(test-equal view-schema-kind-aliasing
+  (native-function-view-schema-kind
+   (nf "func: view(Tensor self) -> Tensor(a)\ndispatch:\n  CPU: view_cpu\n")))
+
+;; 4. aliasing_inplace classification (requires the inplace_view tag).
+(test-equal view-schema-kind-aliasing-inplace
+  (native-function-view-schema-kind
+   (nf "func: set_(Tensor(a!) self) -> Tensor(a!)\ntags: inplace_view\ndispatch:\n  CPU: set_cpu\n")))
+
+;; 5. non_aliasing classification for the view_copy operator.
+(test-equal view-schema-kind-non-aliasing
+  (native-function-view-schema-kind
+   (nf "func: view_copy(Tensor self) -> Tensor\ntags: view_copy\ndispatch:\n  CPU: view_copy_cpu\n")))
+
+;; 6. Multiple distinct view pairs => multiple groups.
+(let ((groups
+       (native-functions-view-groups
+        (list (nf "func: view(Tensor self) -> Tensor(a)\ndispatch:\n  CPU: view_cpu\n")
+              (nf "func: view_copy(Tensor self) -> Tensor\ntags: view_copy\ndispatch:\n  CPU: view_copy_cpu\n")
+              (nf "func: narrow(Tensor self) -> Tensor(a)\ndispatch:\n  CPU: narrow_cpu\n")
+              (nf "func: narrow_copy(Tensor self) -> Tensor\ntags: view_copy\ndispatch:\n  CPU: narrow_copy_cpu\n")))))
+  (test-equal 2 (length groups))
+  (test-equal '("narrow" "view")
+    (sort (map native-functions-view-group-root-name groups) string<?)))
+
+;; 7. Malformed: a view_copy with a mismatched signature is rejected.
+(test-error
+ (make-native-functions-view-group
+  (nf "func: view(Tensor self) -> Tensor(a)\ndispatch:\n  CPU: view_cpu\n")
+  (nf "func: view_copy(Tensor self, Tensor other) -> Tensor\ntags: view_copy\ndispatch:\n  CPU: view_copy_cpu\n")
+  #f))
+
+;; 8. Deterministic ordering follows first appearance of the view signature.
+(let ((groups
+       (native-functions-view-groups
+        (list (nf "func: narrow(Tensor self) -> Tensor(a)\ndispatch:\n  CPU: narrow_cpu\n")
+              (nf "func: narrow_copy(Tensor self) -> Tensor\ntags: view_copy\ndispatch:\n  CPU: narrow_copy_cpu\n")
+              (nf "func: view(Tensor self) -> Tensor(a)\ndispatch:\n  CPU: view_cpu\n")
+              (nf "func: view_copy(Tensor self) -> Tensor\ntags: view_copy\ndispatch:\n  CPU: view_copy_cpu\n")))))
+  (test-equal '("narrow" "view")
+    (map native-functions-view-group-root-name groups)))
 
 (let ((runner (test-runner-current)))
   (test-end)

@@ -31,8 +31,8 @@ if commit != EXPECTED:
 
 sys.path.insert(0, str(root_path))
 try:
-    from torchgen.model import DispatchKey, Location, NativeFunction
-    from torchgen.gen import parse_tags_yaml
+    from torchgen.model import DispatchKey, Location, NativeFunction, NativeFunctionsViewGroup
+    from torchgen.gen import parse_tags_yaml, get_grouped_by_view_native_functions
     from torchgen.native_function_generation import add_generated_native_functions
 except Exception as exc:
     fail("cannot import frozen torchgen: %s" % exc)
@@ -137,6 +137,20 @@ def emit(index, function, dispatch, generated):
     print("record-end")
 
 
+def emit_view_group(index, group):
+    print("view-group-begin")
+    print("index: %06d" % index)
+    print("root: %s" % text(group.root_name))
+    print("view: %s" % text(group.view.func.name))
+    print("view-schema-kind: %s" % group.view.view_schema_kind.name)
+    print("view-copy: %s" %
+          (text(group.view_copy.func.name) if group.view_copy else "-"))
+    print("view-inplace: %s" %
+          (text(group.view_inplace.func.name) if group.view_inplace else "-"))
+    print("composite: %s" % ("true" if group.composite else "false"))
+    print("view-group-end")
+
+
 if len(sys.argv) != 2:
     fail("usage: python-oracle.py FIXTURE")
 
@@ -164,3 +178,11 @@ all_functions = list(generated_result)
 for index, function in enumerate(all_functions):
     dispatch = dispatch_by_id.get(id(function), generated_indices)
     emit(index, function, dispatch, id(function) in generated_ids)
+
+# --- ViewGroup section ---
+view_groups = [
+    g for g in get_grouped_by_view_native_functions(all_functions)
+    if isinstance(g, NativeFunctionsViewGroup)
+]
+for index, group in enumerate(view_groups):
+    emit_view_group(index, group)

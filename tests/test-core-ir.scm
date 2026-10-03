@@ -114,9 +114,11 @@
 (define inplace-arguments
   (make-arguments '() (arg "self" tensor #f 'write #t) '() '() #f '() '()))
 (define mutable-arguments
-  (make-arguments '() (arg "self" tensor #f #f #f) '()
+  ;; torchgen kind(): a "mutable" op is one whose *post-self-positional*
+  ;; argument carries a write annotation.
+  (make-arguments '() (arg "self" tensor #f #f #f)
                   (list (arg "other" tensor #f 'write #t))
-                  #f '() '()))
+                  '() #f '() '()))
 (define out-arguments
   (make-arguments '() (arg "self" tensor #f #f #f) '() '() #f '()
                   (list (arg "out" tensor #f 'write #t))))

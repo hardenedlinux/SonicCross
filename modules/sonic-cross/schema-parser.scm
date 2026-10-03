@@ -192,7 +192,9 @@
     result))
 
 (define (parse-returns text)
-  (cond ((string-null? text) '())
+  ;; torchgen `parse_returns`: "()" is the empty return tuple.
+  (cond ((string=? text "()") '())
+        ((string-null? text) '())
         ((and (char=? (string-ref text 0) #\()
               (char=? (string-ref text (1- (string-length text))) #\)))
          (map parse-return

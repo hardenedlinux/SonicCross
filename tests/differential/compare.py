@@ -26,6 +26,26 @@ def records(path):
     return result
 
 
+def view_groups(path):
+    result = []
+    current = None
+    for line in open(path, encoding="utf-8"):
+        line = line.rstrip("\n")
+        if line == "view-group-begin":
+            current = {}
+        elif line == "view-group-end":
+            if current is None:
+                raise ValueError("view-group-end without view-group-begin")
+            result.append(current)
+            current = None
+        elif current is not None and ": " in line:
+            key, value = line.split(": ", 1)
+            current[key] = value
+    if current is not None:
+        raise ValueError("unterminated view-group")
+    return result
+
+
 def mismatch(fixture, index, field, python_value, sonic_value, operator):
     print("Mismatch:", file=sys.stderr)
     print("  fixture: %s" % fixture, file=sys.stderr)
@@ -77,5 +97,20 @@ for index, (python_record, sonic_record) in enumerate(
         mismatch(fixture, index, "dispatch", python_record.get("dispatch", []),
                  sonic_record.get("dispatch", []), operator)
         raise SystemExit(1)
+
+python_groups = view_groups(python_path)
+sonic_groups = view_groups(sonic_path)
+if len(python_groups) != len(sonic_groups):
+    mismatch(fixture, -1, "view-group-count", len(python_groups),
+             len(sonic_groups), "<view-group-count>")
+    raise SystemExit(1)
+for index, (python_group, sonic_group) in enumerate(zip(python_groups, sonic_groups)):
+    for field in sorted(set(python_group) | set(sonic_group)):
+        left = python_group.get(field, "<missing>")
+        right = sonic_group.get(field, "<missing>")
+        if left != right:
+            mismatch(fixture, index, field, left, right,
+                     python_group.get("root", "<unknown>"))
+            raise SystemExit(1)
 
 print("Python torchgen == SonicCross")

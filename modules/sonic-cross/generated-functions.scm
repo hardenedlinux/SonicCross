@@ -25,11 +25,13 @@
             mutable-to-out-schema
             functional-to-out-schema
             add-generated-native-functions!
-            add-generated-native-functions))
+            add-generated-native-functions
+            unambiguous-name
+            base-operator-spelling))
 
 (define out-ops-that-dont-get-grouped-properly
   '("adaptive_avg_pool3d_backward.grad_input"
-    "_slow_conv2d_backward.output_mask"))
+    "_slow_conv2d_backward.grad_input"))
 
 (define mutable-ops-that-cannot-get-an-out-variant
   '("_cummax_helper" "_cummin_helper"))
@@ -77,16 +79,23 @@
 (define (operator-string func)
   (operator-name->string (function-schema-name func)))
 
-(define (base-name func)
-  (base-operator-name-base
-   (operator-name-base (function-schema-name func))))
-
 (define (base-operator-spelling func)
+  ;; Reproduces torchgen's str(BaseOperatorName): the full base spelling
+  ;; without the overload name, carrying the "_"/"_functional" suffix and
+  ;; dunder-method wrapping.
   (let* ((base-name (operator-name-base (function-schema-name func)))
          (base (base-operator-name-base base-name)))
-    (if (base-operator-name-inplace? base-name)
-        (string-append base "_")
-        base)))
+    (cond
+     ((base-operator-name-dunder-method? base-name)
+      (string-append "__"
+                     (if (base-operator-name-inplace? base-name)
+                         (string-append "i" base)
+                         base)
+                     "__"))
+     ((base-operator-name-inplace? base-name) (string-append base "_"))
+     ((base-operator-name-functional-overload? base-name)
+      (string-append base "_functional"))
+     (else base))))
 
 (define (schema-kind-of native-function)
   (function-schema-kind (native-function-func native-function)))
@@ -298,8 +307,10 @@
          returns)))))
 
 (define (unambiguous-name func)
+  ;; Mirrors torchgen OperatorName.unambiguous_name(): str(BaseOperatorName),
+  ;; plus "_<overload>" when an overload is present.
   (let* ((operator (function-schema-name func))
-         (base (base-operator-name-base (operator-name-base operator)))
+         (base (base-operator-spelling func))
          (overload (operator-name-overload-name operator)))
     (if (string-null? overload)
         base
@@ -307,7 +318,7 @@
 
 (define (cpp-name func)
   (string-append
-   (base-name func)
+   (base-operator-spelling func)
    (if (function-schema-is-out-fn? func) "_out" "")))
 
 (define (generated-tags source func)
@@ -391,7 +402,7 @@
              #f "NoCheck" #f #f '("function") #f #f
              (native-function-loc source) '() #f #f #f #f #f '()
              (native-function-is-abstract? source)
-             #f #f #t #f tags))
+             #f #f #t #f tags '("CompositeExplicitAutograd")))
            (operator (operator-name->string (function-schema-name func))))
       (values generated
               (list (cons "CompositeExplicitAutograd"

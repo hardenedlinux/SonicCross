@@ -25,7 +25,7 @@
                    (map (lambda (value)
                           (let ((metadata (cdr value)))
                             (list key
-                                  (car value)
+                                  (backend-metadata-kernel metadata)
                                   (backend-metadata-structured metadata)
                                   (backend-metadata-cpp-namespace metadata)
                                   (backend-metadata-supports-symint? metadata))))
@@ -60,6 +60,30 @@
      (dispatch-rows dispatch))
     (display "dispatch-end\nrecord-end\n")))
 
+(define (emit-view-group index group)
+  (let ((view (native-functions-view-group-view group))
+        (view-copy (native-functions-view-group-view-copy group))
+        (view-inplace (native-functions-view-group-view-inplace group)))
+    (display "view-group-begin\n")
+    (field "index" (format #f "~6,'0d" index))
+    (field "root" (native-functions-view-group-root-name group))
+    (field "view" (operator-name->string
+                   (function-schema-name (native-function-func view))))
+    (field "view-schema-kind"
+           (symbol->string (native-function-view-schema-kind view)))
+    (field "view-copy"
+           (if view-copy
+               (operator-name->string
+                (function-schema-name (native-function-func view-copy)))
+               "-"))
+    (field "view-inplace"
+           (if view-inplace
+               (operator-name->string
+                (function-schema-name (native-function-func view-inplace)))
+               "-"))
+    (field "composite" (bool (native-functions-view-group-composite? group)))
+    (display "view-group-end\n")))
+
 (unless (= (length (command-line)) 2)
   (error "usage: scheme-dump.scm FIXTURE"))
 (let* ((root (yaml-load (cadr (command-line))))
@@ -93,4 +117,8 @@
                                                (cdr entry))))
                            '())))
                  (emit index function dispatch #t))))
-         (iota (length functions)) functions)))))
+         (iota (length functions)) functions)
+      (let ((groups (native-functions-view-groups functions)))
+        (for-each
+         (lambda (index group) (emit-view-group index group))
+         (iota (length groups)) groups))))))
