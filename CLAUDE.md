@@ -4,7 +4,7 @@ SonicCross is a pure Guile 3.0 / Scheme reimplementation of PyTorch `torchgen`
 — a semantic-equivalent compiler for the C++ operator registration, dispatch,
 and declaration sources.
 
-**Status: v0 frozen** (commit `8c6838b`). The generation closure (manifest +
+**Status: v0 frozen** (commit `13aa2e0`, tag `v0.0.1`). The generation closure (manifest +
 G1–G20) is complete and byte-identical against the frozen baseline. No further
 SonicCross work is planned unless a concrete bug is found; the next phase is
 the **SonicBoom** runtime architecture (C++ → runtime → C ABI).

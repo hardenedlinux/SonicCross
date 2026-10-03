@@ -2,7 +2,7 @@
 
 These instructions apply to work in this repository.
 
-**Status: SonicCross v0 is frozen** (commit `8c6838b`). The generation closure
+**Status: SonicCross v0 is frozen** (commit `13aa2e0`, tag `v0.0.1`). The generation closure
 (manifest + G1–G20) is complete and byte-identical against frozen torchgen; no
 new features are planned. The next phase is the SonicBoom runtime architecture.
 
