@@ -38,6 +38,9 @@ Generate the ATen C++ source/header artifacts from native_functions.yaml.
       --dry-run             run without writing any files
       --generate SUBSETS    comma-separated subset of headers,sources,
                             declarations_yaml (default: all three)
+      --per-operator-headers
+                            split operator declarations into per-operator
+                            headers under ATen/ops (CMake per-operator build)
       --aoti-install-dir DIR   AOTInductor shim output directory (unused)
       --headeronly-install-dir DIR  header-only output directory
       -h, --help            show this help
@@ -58,6 +61,7 @@ Generate the ATen C++ source/header artifacts from native_functions.yaml.
     (install-dir (single-char #\d) (value #t))
     (output-dependencies (single-char #\o) (value #t))
     (dry-run)
+    (per-operator-headers)
     (generate (value #t))
     (aoti-install-dir (value #t))
     (headeronly-install-dir (value #t))))
@@ -152,6 +156,7 @@ Generate the ATen C++ source/header artifacts from native_functions.yaml.
              (install-dir (option-ref options 'install-dir "build/aten/src/ATen"))
              (output-deps (option-ref options 'output-dependencies #f))
              (dry-run? (option-ref options 'dry-run #f))
+             (per-operator? (option-ref options 'per-operator-headers #f))
              (aoti-dir (option-ref options 'aoti-install-dir #f))
              (headeronly-dir (option-ref options 'headeronly-install-dir #f))
              (subsets (let ((g (option-ref options 'generate #f)))
@@ -172,6 +177,7 @@ Generate the ATen C++ source/header artifacts from native_functions.yaml.
                                            #:aoti-install-dir aoti-dir
                                            #:headeronly-install-dir headeronly-dir
                                            #:dry-run? dry-run?
+                                           #:per-operator-headers? per-operator?
                                            #:generate subsets)))
                 (when output-deps
                   (write-output-dependencies output-deps written))

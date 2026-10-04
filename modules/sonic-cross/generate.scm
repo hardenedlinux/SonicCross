@@ -40,6 +40,7 @@
   #:use-module (sonic-cross orchestration)
   #:use-module (sonic-cross emitter)
   #:use-module (sonic-cross register-dispatch-key)
+  #:use-module (sonic-cross per-operator-headers)
   #:use-module (sonic-cross functionalization)
   #:use-module (sonic-cross operators)
   #:use-module (sonic-cross tensor-body)
@@ -172,6 +173,7 @@
                        (aoti-install-dir #f)
                        (headeronly-install-dir #f)
                        (dry-run? #f)
+                       (per-operator-headers? #f)
                        (generate '(headers sources declarations_yaml)))
   ;; Render the full in-scope G1-G20 closure and write it under install-dir.
   ;; `generate` mirrors torchgen's --generate subset: sources / headers /
@@ -204,7 +206,9 @@
              (lambda (f)
                (write! (register-dispatch-key->label (car f))
                        install-dir (car f) (cdr f)))
-             (render-register-dispatch-key-files grouped indices))
+             (render-register-dispatch-key-files grouped indices
+                                                 #:per-operator?
+                                                 per-operator-headers?))
             ;; G10 structured ufunc kernels.
             (for-each
              (lambda (g)
@@ -263,25 +267,40 @@
                       indices "CompositeExplicitAutogradNonFunctional"))))
           ;; ---- gen_headers ----
           (when want-headers
-            ;; G9 NativeMetaFunctions.h.
-            (write! 'cpu install-dir "NativeMetaFunctions.h"
-                    (render-native-meta-functions-h structured))
-            ;; G4 MethodOperators.h.
-            (write! 'cpu install-dir "MethodOperators.h"
-                    (render-method-operators-h functions))
-            ;; G16 Operators.h.
-            (write! 'cpu install-dir "Operators.h" (render-operators-h functions))
-            ;; G5 Functions.h.
-            (write! 'cpu install-dir "Functions.h" (render-functions-h functions))
-            ;; G7 NativeFunctions.h.
-            (write! 'cpu install-dir "NativeFunctions.h"
-                    (render-native-functions-h grouped indices))
-            ;; G8 {key}Functions.h / {key}Functions_inl.h; cpu vs cuda by key.
-            (for-each
-             (lambda (f)
-               (write! (dispatch-key-functions->label (car f))
-                       install-dir (car f) (cdr f)))
-             (render-dispatch-key-functions grouped indices))
+            (if per-operator-headers?
+                ;; Per-operator mode: ops/*.h + include-only aggregate shims +
+                ;; per-dispatch-key {key}Functions*.h.
+                (for-each
+                 (lambda (entry)
+                   (let ((label (car entry))
+                         (filename (cadr entry))
+                         (content (caddr entry)))
+                     (write! label
+                             (if (eq? label 'ops)
+                                 (string-append install-dir "/ops")
+                                 install-dir)
+                             filename content)))
+                 (render-per-operator-headers functions grouped indices))
+                (begin
+                  ;; G9 NativeMetaFunctions.h.
+                  (write! 'cpu install-dir "NativeMetaFunctions.h"
+                          (render-native-meta-functions-h structured))
+                  ;; G4 MethodOperators.h.
+                  (write! 'cpu install-dir "MethodOperators.h"
+                          (render-method-operators-h functions))
+                  ;; G16 Operators.h.
+                  (write! 'cpu install-dir "Operators.h" (render-operators-h functions))
+                  ;; G5 Functions.h.
+                  (write! 'cpu install-dir "Functions.h" (render-functions-h functions))
+                  ;; G7 NativeFunctions.h.
+                  (write! 'cpu install-dir "NativeFunctions.h"
+                          (render-native-functions-h grouped indices))
+                  ;; G8 {key}Functions.h / {key}Functions_inl.h; cpu vs cuda by key.
+                  (for-each
+                   (lambda (f)
+                     (write! (dispatch-key-functions->label (car f))
+                             install-dir (car f) (cdr f)))
+                   (render-dispatch-key-functions grouped indices))))
             ;; G17 TensorBody.h (core).
             (write! 'core core-dir "TensorBody.h" (render-tensor-body-h functions))
             ;; G6 RedispatchFunctions.h.

@@ -3,7 +3,7 @@ SUBDIRS = yaml
 moddir = $(GUILE_SITE)/sonic-cross
 godir = $(GUILE_SITE_CCACHE)/sonic-cross
 
-dist_mod_DATA = api.scm backend-select.scm bootstrap.scm code-template.scm composite-view-copy-kernels.scm core-ir.scm core-sources.scm dispatcher.scm emitter.scm file-manager.scm functionalization.scm generate.scm generated-functions.scm irregex.scm native-function.scm operators.scm orchestration.scm register-dispatch-key.scm regex.scm schema-parser.scm sha1.scm tensor-body.scm ufunc.scm yaml.scm
+dist_mod_DATA = api.scm backend-select.scm bootstrap.scm code-template.scm composite-view-copy-kernels.scm core-ir.scm core-sources.scm dispatcher.scm emitter.scm file-manager.scm functionalization.scm generate.scm generated-functions.scm irregex.scm native-function.scm operators.scm orchestration.scm per-operator-headers.scm register-dispatch-key.scm regex.scm schema-parser.scm sha1.scm tensor-body.scm ufunc.scm yaml.scm
 
 GOBJECTS = $(dist_mod_DATA:.scm=.go)
 nodist_go_DATA = $(GOBJECTS)
@@ -35,10 +35,11 @@ emitter.go: api.scm code-template.scm core-ir.scm dispatcher.scm generated-funct
 file-manager.go: sha1.scm
 functionalization.go: api.scm code-template.scm core-ir.scm file-manager.scm generated-functions.scm native-function.scm orchestration.scm
 generated-functions.go: core-ir.scm native-function.scm
-generate.go: backend-select.scm composite-view-copy-kernels.scm core-ir.scm core-sources.scm emitter.scm functionalization.scm generated-functions.scm native-function.scm operators.scm orchestration.scm register-dispatch-key.scm tensor-body.scm ufunc.scm yaml.scm
+generate.go: backend-select.scm composite-view-copy-kernels.scm core-ir.scm core-sources.scm emitter.scm functionalization.scm generated-functions.scm native-function.scm operators.scm orchestration.scm per-operator-headers.scm register-dispatch-key.scm tensor-body.scm ufunc.scm yaml.scm
 native-function.go: core-ir.scm schema-parser.scm yaml.scm
 operators.go: code-template.scm core-ir.scm dispatcher.scm emitter.scm file-manager.scm generated-functions.scm native-function.scm
 orchestration.go: core-ir.scm file-manager.scm generated-functions.scm native-function.scm
+per-operator-headers.go: code-template.scm core-ir.scm emitter.scm native-function.scm operators.scm orchestration.scm register-dispatch-key.scm
 regex.go: irregex.scm
 register-dispatch-key.go: api.scm code-template.scm core-ir.scm file-manager.scm native-function.scm orchestration.scm
 schema-parser.go: core-ir.scm regex.scm

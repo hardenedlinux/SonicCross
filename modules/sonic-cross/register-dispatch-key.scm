@@ -22,6 +22,7 @@
 ;; to `torchgen/gen.py` at 41ffbc4a994e058af9fe00ed5caba73fc1033359.
 
 (define-module (sonic-cross register-dispatch-key)
+  #:use-module (ice-9 optargs)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-13)
   #:use-module (sonic-cross core-ir)
@@ -32,8 +33,15 @@
   #:use-module (sonic-cross file-manager)
   #:export (make-backend-index
             backend-index-effective-key
+            backend-index-get-kernel
+            backend-index-has-kernel
+            backend-index-get-kernel-group
+            gen-dispatch
             render-register-dispatch-key-files
-            render-dispatch-key-functions))
+            render-dispatch-key-functions
+            render-dispatch-key-functions-h
+            render-dispatch-key-functions-inl-h
+            gen-per-operator-operator-headers))
 
 (define %generator-path "torchgen/gen.py")
 
@@ -128,6 +136,13 @@
 (define (backend-index-get-kernel-group group bi)
   (backend-index-get-kernel (native-functions-group-out group) bi))
 
+(define (backend-index-has-kernel* item bi)
+  ;; mirrors BackendIndex.has_kernel(item): for a group, get_kernel resolves via
+  ;; primary(group) == group.out; for a native function it is a direct lookup.
+  (if (native-functions-group? item)
+      (and (backend-index-get-kernel-group item bi) #t)
+      (backend-index-has-kernel item bi)))
+
 ;; ---------------------------------------------------------------------------
 ;; registration headers / helpers (dest/register_dispatch_key.py)
 ;; ---------------------------------------------------------------------------
@@ -139,9 +154,12 @@
    "#include <ATen/cuda/CUDADevice.h>\n"
    "#include <ATen/cuda/CUDAContext.h>"))
 
-(define (gen-registration-headers dispatch-key)
-  ;; per_operator_headers=False, rocm=False.
-  (let ((headers (list "#include <ATen/NativeFunctions.h>")))
+(define* (gen-registration-headers dispatch-key #:key (per-operator? #f))
+  ;; rocm=False.  per_operator_headers selects the per-operator include set.
+  (let ((headers
+         (list (if per-operator?
+                   "#include <ATen/ops/as_strided_native.h>"
+                   "#include <ATen/NativeFunctions.h>"))))
     (cond
      ((member dispatch-key '("CPU" "Meta"))
       (set! headers (append headers (list "#include <ATen/EmptyTensor.h>"))))
@@ -153,6 +171,13 @@
       (set! headers (append headers (list "#include <ATen/xpu/EmptyTensor.h>"))))
      ((string=? dispatch-key "MTIA")
       (set! headers (append headers (list "#include <ATen/native/mtia/EmptyTensor.h>"))))
+     (per-operator?
+      (set! headers
+            (append headers
+                    (list "#include <ATen/ops/empty.h>"
+                          "#include <ATen/ops/empty_strided.h>"
+                          "#include <ATen/ops/_copy_from_and_resize.h>"
+                          "#include <ATen/ops/_copy_from.h>"))))
      (else
       (set! headers (append headers (list "#include <ATen/Functions.h>")))))
     (append headers (list "#include <c10/macros/Macros.h>"))))
@@ -167,6 +192,49 @@
                               (list (string-append "#include <ATen/" dispatch-key
                                                    "Functions.h>")))))
     headers))
+
+(define (per-op-registered? g dispatch-key backend-index)
+  ;; Mirrors gen.py operator_headers()'s is_registered test for one grouped
+  ;; item: a kernel on the group (via its out operator), a kernel on any member
+  ;; function of a non-structured group, or a structured group under Meta /
+  ;; CompositeExplicitAutogradNonFunctional (where structured kernels get
+  ;; generated).
+  (or (backend-index-has-kernel* g backend-index)
+      (and (native-functions-group? g)
+           (any (lambda (fn)
+                  (backend-index-has-kernel fn backend-index))
+                (native-functions-group-functions g)))
+      (and (native-functions-group? g)
+           (native-functions-group-structured? g)
+           (member dispatch-key
+                   '("Meta" "CompositeExplicitAutogradNonFunctional")))))
+
+(define (gen-per-operator-operator-headers grouped dispatch-key backend-index)
+  ;; per_operator_headers=True: the per-operator include set for
+  ;; Register{key}.cpp.  Mirrors gen.py operator_headers() (per-operator branch):
+  ;; for every grouped item that is "registered" under this dispatch key, emit
+  ;; {root}_native.h, plus {root}.h for CompositeExplicitAutogradNonFunctional
+  ;; and {root}_{lower}_dispatch.h for the functions keys.  sorted(set(...)).
+  (let ((lower (string-downcase dispatch-key)))
+    (sort
+     (delete-duplicates
+      (append-map
+       (lambda (g)
+         (if (not (per-op-registered? g dispatch-key backend-index))
+             '()
+             (let ((root (item-root-name g)))
+               (append
+                (list (string-append "#include <ATen/ops/" root "_native.h>"))
+                (if (string=? dispatch-key "CompositeExplicitAutogradNonFunctional")
+                    (list (string-append "#include <ATen/ops/" root ".h>"))
+                    '())
+                (if (member dispatch-key functions-keys)
+                    (list (string-append "#include <ATen/ops/" root "_"
+                                         lower "_dispatch.h>"))
+                    '())))))
+       grouped)
+      string=?)
+     string<?)))
 
 (define (gen-empty-impl-names dispatch-key)
   (cond
@@ -1060,8 +1128,9 @@
    "// See template file RegisterDispatchDefinitions.ini\n"
    "$dispatch_definitions\n"))
 
-(define (render-register-dispatch-key-shards grouped dispatch-key backend-index
-                                             num-shards)
+(define* (render-register-dispatch-key-shards grouped dispatch-key backend-index
+                                               num-shards
+                                               #:key (per-operator? #f))
   ;; returns ((suffix . content) ...) for "Everything" and "_0".."_n-1".
   (let* ((effective-key (backend-index-effective-key backend-index))
          (base-env
@@ -1069,8 +1138,14 @@
            (cons "extra_cuda_headers"
                  (if (is-cuda-dispatch-key? dispatch-key) %extra-cuda-headers ""))
            (cons "external_backend_headers" "")
-           (cons "dispatch_headers" (gen-registration-headers effective-key))
-           (cons "ops_headers" (gen-operator-headers dispatch-key))
+           (cons "dispatch_headers"
+                 (gen-registration-headers effective-key
+                                           #:per-operator? per-operator?))
+           (cons "ops_headers"
+                 (if per-operator?
+                     (gen-per-operator-operator-headers grouped dispatch-key
+                                                        backend-index)
+                     (gen-operator-headers dispatch-key)))
            (cons "dispatch_helpers"
                  (if (string=? dispatch-key "CompositeImplicitAutogradNestedTensor")
                      '()
@@ -1112,7 +1187,8 @@
          (cons sid content)))
      shard-ids)))
 
-(define (render-register-dispatch-key-files grouped indices)
+(define* (render-register-dispatch-key-files grouped indices
+                                             #:key (per-operator? #f))
   ;; returns ((filename . content) ...) sorted by filename, for all 22 keys.
   (sort
    (append-map
@@ -1121,7 +1197,9 @@
              (num-shards (if (string=? key "CPU") 4 1))
              (shards (render-register-dispatch-key-shards grouped key
                                                           backend-index
-                                                          num-shards)))
+                                                          num-shards
+                                                          #:per-operator?
+                                                          per-operator?)))
         (map (lambda (entry)
                (let ((suffix (car entry)) (content (cdr entry)))
                  (cons (string-append "Register" key suffix ".cpp")
@@ -1229,7 +1307,9 @@
        (string-append "#include <ATen/" dispatch-key "Functions_inl.h>"))
       (else (error 'unknown-functions-h-key key))))))
 
-(define (render-dispatch-key-functions-inl-h grouped dispatch-key backend-index)
+(define* (render-dispatch-key-functions-inl-h grouped dispatch-key backend-index
+                                              #:key (includes '())
+                                              (declarations #f))
   ;; {dispatch_key}Functions_inl.h: DispatchKeyFunctions_inl.h template.
   (code-template-substitute
    %dispatch-key-functions-inl-template
@@ -1238,10 +1318,11 @@
       ((string=? key "generated_comment")
        (string-append "@generated by " %generator-path
                       " from DispatchKeyFunctions_inl.h"))
-      ((string=? key "DispatchKeyFunctions_inl_includes") '())
+      ((string=? key "DispatchKeyFunctions_inl_includes") includes)
       ((string=? key "dispatch_namespace") (string-downcase dispatch-key))
       ((string=? key "dispatch_namespaced_declarations")
-       (get-namespaced-declaration grouped dispatch-key backend-index))
+       (or declarations
+           (get-namespaced-declaration grouped dispatch-key backend-index)))
       (else (error 'unknown-functions-inl-key key))))))
 
 (define (render-dispatch-key-functions grouped indices)

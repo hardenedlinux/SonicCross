@@ -409,7 +409,7 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-TESTS = load-module.scm test-core-ir.scm test-generated-functions.scm test-irregex.scm test-native-function.scm test-schema-parser.scm test-yaml.scm
+TESTS = load-module.scm test-core-ir.scm test-generated-functions.scm test-irregex.scm test-native-function.scm test-per-operator-headers.scm test-schema-parser.scm test-yaml.scm
 AM_TESTS_ENVIRONMENT = \
   GUILE_LOAD_PATH="$(abs_top_srcdir)/modules:$(abs_top_srcdir)/scripts:$$GUILE_LOAD_PATH"; \
   export GUILE_LOAD_PATH;
@@ -420,7 +420,15 @@ EXTRA_DIST = $(TESTS) fixtures/native-functions.yaml \
   differential/compare.py \
   differential/run-differential.sh \
   differential/manifest-oracle.py differential/scheme-manifest.scm \
-  differential/run-manifest-differential.sh
+  differential/run-manifest-differential.sh \
+  differential/per-operator-headers-oracle.py \
+  differential/scheme-per-operator-headers.scm \
+  differential/compare-per-operator-headers.py \
+  differential/run-per-operator-headers-differential.sh \
+  differential/register-dispatch-key-per-operator-oracle.py \
+  differential/scheme-register-dispatch-key-per-operator.scm \
+  differential/compare-register-dispatch-key-per-operator.py \
+  differential/run-register-dispatch-key-per-operator-differential.sh
 
 all: all-am
 
@@ -634,6 +642,13 @@ test-irregex.scm.log: test-irregex.scm
 test-native-function.scm.log: test-native-function.scm
 	@p='test-native-function.scm'; \
 	b='test-native-function.scm'; \
+	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
+	--log-file $$b.log --trs-file $$b.trs \
+	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \
+	"$$tst" $(AM_TESTS_FD_REDIRECT)
+test-per-operator-headers.scm.log: test-per-operator-headers.scm
+	@p='test-per-operator-headers.scm'; \
+	b='test-per-operator-headers.scm'; \
 	$(am__check_pre) $(LOG_DRIVER) --test-name "$$f" \
 	--log-file $$b.log --trs-file $$b.trs \
 	$(am__common_driver_flags) $(AM_LOG_DRIVER_FLAGS) $(LOG_DRIVER_FLAGS) -- $(LOG_COMPILE) \

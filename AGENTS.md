@@ -3,8 +3,11 @@
 These instructions apply to work in this repository.
 
 **Status: SonicCross v0 is frozen** (commit `13aa2e0`, tag `v0.0.1`). The generation closure
-(manifest + G1–G20) is complete and byte-identical against frozen torchgen; no
-new features are planned. The next phase is the SonicBoom runtime architecture.
+(manifest + G1–G20) is complete and byte-identical against frozen torchgen.
+Per-operator header generation (`ATen/ops/*.h` + per-operator
+`Register{key}.cpp`) is implemented as a flag-gated mode; the frozen G1–G20
+aggregate closure is unchanged. The next phase is the SonicBoom runtime
+architecture.
 
 ## Before editing
 
@@ -63,6 +66,6 @@ SonicCross v0 is frozen. Do not add features. Still out of scope:
 - BackendIndex semantics and NativeFunctionsViewGroup (never needed — the
   closure uses the nop selector);
 - G21 `Declarations.yaml` (YAML serialization);
-- AOTI C shim, `VmapGeneratedPlumbing.h`, per-operator headers;
+- AOTI C shim, `VmapGeneratedPlumbing.h`;
 - Python bindings, ExecuTorch / lazy / selective build / static dispatch;
 - runtime dispatcher, boxing/unboxing, and C++ runtime codegen (SonicBoom).

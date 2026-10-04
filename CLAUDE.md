@@ -5,9 +5,12 @@ SonicCross is a pure Guile 3.0 / Scheme reimplementation of PyTorch `torchgen`
 and declaration sources.
 
 **Status: v0 frozen** (commit `13aa2e0`, tag `v0.0.1`). The generation closure (manifest +
-G1–G20) is complete and byte-identical against the frozen baseline. No further
-SonicCross work is planned unless a concrete bug is found; the next phase is
-the **SonicBoom** runtime architecture (C++ → runtime → C ABI).
+G1–G20) is complete and byte-identical against the frozen baseline. Per-operator
+header generation (`ATen/ops/*.h` + per-operator `Register{key}.cpp`) is also
+implemented as a separate, flag-gated mode (`--per-operator-headers`), natively
+in Guile/Scheme and byte-identical to frozen `gen_per_operator_headers`. The
+frozen G1–G20 aggregate closure is unchanged. The next phase is the **SonicBoom**
+runtime architecture (C++ → runtime → C ABI).
 
 ## Frozen baseline
 
@@ -29,7 +32,9 @@ source audit.
 - Do not redesign Core IR, Schema Parser, NativeFunction, or generation APIs
   to accommodate convenience.
 - The generation closure (G1–G20) is frozen: do not add emitters, artifacts,
-  or dispatcher behavior to it.
+  or dispatcher behavior to it. Per-operator header generation lives in its own
+  module (`per-operator-headers.scm`) and is flag-gated; it does not alter the
+  G1–G20 aggregate renderers' default output.
 - Keep `SONICCROSS-SPEC.md` and frozen semantic documents unchanged.
 - Keep normal `make check` self-contained; external PyTorch checkouts belong to
   developer-only differential validation.
@@ -61,8 +66,11 @@ SonicCross.
 SonicCross v0 is frozen. The emitter closure (G1–G20) and the differential
 harness are complete. Do not add new emitters, artifacts, or IR; do not
 redesign Core IR, Schema Parser, NativeFunction, or the generation APIs.
+Per-operator header generation is the one extension beyond the frozen v0
+closure: it reuses the existing Semantic IR and emitter helpers and is
+flag-gated behind `--per-operator-headers`.
 
 Out of scope (never part of SonicCross): G21 `Declarations.yaml` (YAML
-serialization), AOTI C shim, `VmapGeneratedPlumbing.h`, per-operator headers,
-Python bindings, ExecuTorch / lazy / selective build / static dispatch, and the
+serialization), AOTI C shim, `VmapGeneratedPlumbing.h`, Python bindings,
+ExecuTorch / lazy / selective build / static dispatch, and the
 runtime dispatcher / boxing / unboxing (that is SonicBoom's domain).
